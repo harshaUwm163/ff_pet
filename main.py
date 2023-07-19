@@ -109,7 +109,6 @@ def main(args):
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-
     device = args.device or "cuda"
     if args.total_batch_size is not None:
         if args.gradient_accumulation is None:
@@ -277,8 +276,8 @@ def main(args):
             "target_modules": ["attn", "mlp"],
         }
 
-    wandb.init(project="peft_pretraining", config=_config, tags=args.tags)
-    wandb.save(os.path.abspath(__file__), policy="now") # save current script
+    wandb.init(project="debug_thread", config=_config, tags=args.tags)
+    # wandb.save(os.path.abspath(__file__), policy="now") # save current script
     pbar = tqdm(total=args.num_training_steps * args.gradient_accumulation - update_step)
 
     model = model.to(device, dtype=getattr(torch, args.dtype))
