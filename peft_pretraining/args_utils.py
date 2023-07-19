@@ -18,8 +18,7 @@ def check_args_torchrun_main(args):
 
     if not args.use_peft:
         # just for more clear hparam logging to wandb
-        args.relora = None
-        args.lora_r = None
+        args.retff = None
         args.force_keep_original = False
 
     if args.total_batch_size is None:
@@ -38,14 +37,14 @@ def check_args_torchrun_main(args):
     if args.dtype in ["fp16", "float16"]:
         raise NotImplementedError("fp16 is not supported in torchrun_main.py. Use deepspeed_main.py instead (but it seems to have bugs)")
 
-    if (int(args.reset_optimizer_on_relora) +
+    if (int(args.reset_optimizer_on_retff) +
         int(bool(args.optimizer_random_pruning)) +
         int(bool(args.optimizer_magnitude_pruning))
         ) > 1:
-        raise ValueError("reset_optimizer_on_relora, and keep_first_opt_rows are mutually exclusive")
+        raise ValueError("reset_optimizer_on_retff, and keep_first_opt_rows are mutually exclusive")
 
-    if args.relora and not args.use_peft:
-        logger.warning("--relora assumes --use_peft. Setting --use_peft=True")
+    if args.retff and not args.use_peft:
+        logger.warning("--retff  assumes --use_peft. Setting --use_peft=True")
         args.use_peft = True
 
     assert 0 <= args.optimizer_random_pruning < 1, "--optimizer_random_pruning must be between 0 and 1"
