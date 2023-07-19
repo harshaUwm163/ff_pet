@@ -23,7 +23,8 @@ from tqdm import tqdm
 from loguru import logger
 
 import peft_pretraining.training_utils as training_utils
-from peft_pretraining.relora import ReLoRaModel
+# from peft_pretraining.relora import ReLoRaModel
+from peft_pretraining.re_tff import ReTffModel
 
 
 def parse_args(args):
@@ -38,14 +39,14 @@ def parse_args(args):
     parser.add_argument("--max_length", type=int, default=256)
 
     parser.add_argument("--use_peft", action="store_true")
-    parser.add_argument("--lora_r", type=int, default=128)
-    parser.add_argument("--relora", type=int, default=None)
+    # parser.add_argument("--lora_r", type=int, default=128)
+    parser.add_argument("--retff", type=int, default=None)
     parser.add_argument("--train_scaling", default=False, action="store_true")
-    parser.add_argument("--reset_optimizer_on_relora", default=True, type=lambda x: x.lower() == "true")
+    parser.add_argument("--reset_optimizer_on_retff", default=True, type=lambda x: x.lower() == "true")
 
     parser.add_argument("--force_keep_original", default=False, action="store_true",
-                        help=("Keep original model parameters even if relora is None. "
-                              "Useful for making sure that full-LoRa model is equivalent to model+LoRa."))
+                        help=("Keep original model parameters even if retff is None. "
+                              "Useful for making sure that full-Tff model is equivalent to model+Tff."))
 
     parser.add_argument("--train_ln", default=True, action="store_true")
     parser.add_argument("--lr", type=float, default=1e-4)
@@ -83,8 +84,8 @@ def parse_args(args):
 
     if not args.use_peft:
         # just for more clear hparam logging to wandb
-        args.relora = None
-        args.lora_r = None
+        args.retff = None
+        # args.lora_r = None
         args.force_keep_original = False
 
     if args.total_batch_size is None:
@@ -196,19 +197,17 @@ def main(args):
         for p in model.parameters():
             p.requires_grad = False
 
-        need_linear_weight = args.relora is not None or args.force_keep_original
+        need_linear_weight = args.retff is not None or args.force_keep_original
         if args.continue_from is not None:
             need_linear_weight = True
 
-        model = ReLoRaModel(
+        model = ReTffModel(
             model,
-            r=args.lora_r,
-            lora_alpha=32,
-            lora_dropout=0.1,
+            tff_dropout=0.1,
             target_modules=["attn", "mlp"],
             trainable_scaling=args.train_scaling,
             keep_original_weights=args.continue_from is not None,
-            lora_only=not need_linear_weight,
+            tff_only=not need_linear_weight,
         )
 
         for name, param in model.named_parameters():
@@ -221,7 +220,7 @@ def main(args):
                 param.requires_grad = True
             elif "bias" in name:
                 param.requires_grad = True
-            elif "lora_" in name:
+            elif "tff_" in name:
                 param.requires_grad = True
             else:
                 param.requires_grad = False
@@ -231,19 +230,19 @@ def main(args):
 
     # print params and trainable params
     logger.info(f"\n{model}\n")
-    logger.info(f"Total params before LoRA: {params_before / 1_000_000:.2f}M")
-    logger.info(f"Total params after  LoRA: {params_after / 1_000_000:.2f}M")
+    logger.info(f"Total params before Tff: {params_before / 1_000_000:.2f}M")
+    logger.info(f"Total params after  Tff: {params_after / 1_000_000:.2f}M")
     logger.info(f"Trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1_000_000:.2f}M")
 
     if args.save_dir:
         logger.info(f"Saving model to {args.save_dir} every {args.save_every} update steps")
 
-    if args.use_peft and args.relora is not None:
+    if args.use_peft and args.retff is not None:
         if (params_after <= params_before):
-            raise ValueError("Total number of parameters should increase after applying LoRA with restarts")
+            raise ValueError("Total number of parameters should increase after applying Tff with restarts")
         
         if (trainable_after >= trainable_before):
-            raise ValueError("Total number of trainable parameters should decrease after applying LoRA with restarts")
+            raise ValueError("Total number of trainable parameters should decrease after applying Tff with restarts")
 
     n_total_params = sum(p.numel() for p in model.parameters())
     n_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -268,10 +267,8 @@ def main(args):
     _config.update(_config_ext)
 
     if args.use_peft:
-        logger.warning("PEFT config (all but lora_r) is hardcoded!")
+        logger.warning("PEFT config is hardcoded!")
         _config["peft_config"] = {
-            "r": args.lora_r,
-            "alpha": 32,
             "dropout": 0.1,
             "target_modules": ["attn", "mlp"],
         }
@@ -292,7 +289,7 @@ def main(args):
     )
 
     # global steps and others are defined above
-    n_lora_restarts = 0
+    n_tff_restarts = 0
     pad_idx = tokenizer.pad_token_id
     update_time = time.time()
     local_step = 0  # when continue_from is used, local_step != global_step
@@ -352,27 +349,27 @@ def main(args):
                 "update_step": update_step,
                 "tokens_seen": tokens_seen,
                 "tokens_seen_before": tokens_seen_before,
-                "n_lora_restarts": n_lora_restarts,
+                "n_tff_restarts": n_tff_restarts,
                 "update_time": update_time,
             }
             with open(f"{current_model_directory}/training_state.json", "w") as f:
                 json.dump(training_state_checkpoint, f, indent=4)
 
-        # restart model after we modify the learning rate, so on the next step after the relora frequency
-        if args.relora and update_step > args.relora and update_step % args.relora == 1:
+        # restart model after we modify the learning rate, so on the next step after the retff frequency
+        if args.retff and update_step > args.retff and update_step % args.retff == 1:
             copy_of_opt_state = list(optimizer.state.values())[1]["exp_avg"].clone()
 
-            if not args.reset_optimizer_on_relora:
+            if not args.reset_optimizer_on_retff:
                 logger.info("Saving optimizer states")
                 tmp_optimizer_path = os.path.join(args.save_dir, "tmp_optimizer", "optimizer.pt")
                 os.makedirs(os.path.dirname(tmp_optimizer_path), exist_ok=True)
                 torch.save(optimizer.state_dict(), tmp_optimizer_path)
 
-            logger.info(f"Performing lora reset. Current lr is {optimizer.param_groups[0]['lr']}")
-            n_lora_restarts += 1
-            model.merge_and_reinit()
+            logger.info(f"Performing tff reset. Current lr is {optimizer.param_groups[0]['lr']}")
+            n_tff_restarts += 1
+            model.merge_and_reinit(device)
 
-            if args.reset_optimizer_on_relora:
+            if args.reset_optimizer_on_retff:
                 logger.info("Resetting optimizer states to zeros")
                 for group in optimizer.param_groups:
                     for p in group["params"]:
@@ -380,13 +377,13 @@ def main(args):
                         param_state["exp_avg"] = torch.zeros_like(p.data)
                         param_state["exp_avg_sq"] = torch.zeros_like(p.data)
             else:
-                assert torch.all(copy_of_opt_state == list(optimizer.state.values())[1]["exp_avg"]), "Optimizer states are not the same after lora reset"
+                assert torch.all(copy_of_opt_state == list(optimizer.state.values())[1]["exp_avg"]), "Optimizer states are not the same after tff reset"
                 logger.info("Loading optimizer states")
                 optimizer.load_state_dict(torch.load(tmp_optimizer_path))
                 assert torch.all(copy_of_opt_state == list(optimizer.state.values())[1]["exp_avg"]), "Optimizer states are not the same after loading"
 
-        if args.relora and update_step > args.relora and update_step % args.relora == 2:
-            logger.info(f"First step after lora reset lr is {optimizer.param_groups[0]['lr']}")
+        if args.retff and update_step > args.retff and update_step % args.retff == 2:
+            logger.info(f"First step after tff reset lr is {optimizer.param_groups[0]['lr']}")
 
         lr = scheduler.get_last_lr()[0]
         tokens_in_update = tokens_seen - tokens_seen_before
@@ -401,7 +398,7 @@ def main(args):
             "throughput_tokens": tokens_in_update / update_time,
             "throughput_examples": args.total_batch_size / update_time,
             "throughput_batches": batches_in_update / update_time,
-            "n_lora_restarts": n_lora_restarts,
+            "n_tff_restarts": n_tff_restarts,
             },
             step=global_step,
         )
