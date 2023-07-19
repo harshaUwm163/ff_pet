@@ -28,7 +28,8 @@ from loguru import logger
 from peft_pretraining import training_utils, args_utils
 from peft_pretraining.dataloader import PreprocessedIterableDataset
 from peft_pretraining.modeling_llama import LlamaForCausalLM
-from peft_pretraining.relora import ReLoRaModel, ReLoRaLinear
+# from peft_pretraining.relora import ReLoRaModel, ReLoRaLinear
+from peft_pretraining.re_tff import ReTffModel, ReTffLinear
 
 transformers.logging.set_verbosity_error()
 
@@ -39,7 +40,7 @@ def parse_args(args):
     parser.add_argument("--model_config", type=str, required=True)
     parser.add_argument("--use_hf_model", default=False, action="store_true")
     parser.add_argument("--continue_from", type=str, default=None)
-    parser.add_argument("--continue_from_peft", type=str, default=None, help="Continue training with ReLoRA, loading optimizer and scheduler from the checkpoint.")
+    parser.add_argument("--continue_from_peft", type=str, default=None, help="Continue training with ReTff, loading optimizer and scheduler from the checkpoint.")
     parser.add_argument("--restore_optimizer", default=False, action="store_true")
 
     parser.add_argument("--batch_size", type=int, required=True)
@@ -48,17 +49,17 @@ def parse_args(args):
     parser.add_argument("--max_length", type=int, default=256)
 
     parser.add_argument("--use_peft", action="store_true")
-    parser.add_argument("--lora_r", type=int, default=128)
-    parser.add_argument("--relora", type=int, default=None)
+    # parser.add_argument("--lora_r", type=int, default=128)
+    parser.add_argument("--retff", type=int, default=None)
     parser.add_argument("--train_scaling", default=False, action="store_true")
-    parser.add_argument("--reset_optimizer_on_relora", default=True, type=lambda x: x.lower() == "true")
+    parser.add_argument("--reset_optimizer_on_retff", default=True, type=lambda x: x.lower() == "true")
     parser.add_argument("--optimizer_random_pruning", default=0.0, type=float,
                         help="Use random pruning to reduce optimizer matrix internal dimensionality.")
     parser.add_argument("--optimizer_magnitude_pruning", default=0.0, type=float,
                         help="Use magnitude pruning to reduce optimizer matrix internal dimensionality.")
     parser.add_argument("--force_keep_original", default=False, action="store_true",
-                        help=("Keep original model parameters even if relora is None. "
-                              "Useful for making sure that full-LoRa model is equivalent to model+LoRa."))
+                        help=("Keep original model parameters even if retff is None. "
+                              "Useful for making sure that full-Tff model is equivalent to model+Tff."))
 
     parser.add_argument("--train_ln", default=True, action="store_true")
     parser.add_argument("--optimizer", default="Adam", choices=["Adam", "Shampoo"])
@@ -67,8 +68,8 @@ def parse_args(args):
     parser.add_argument("--cycle_length", type=int, default=None, help="Number of steps per cycle for cosine scheduler")
     parser.add_argument("--restart_warmup_steps", type=int, default=None, help="Number of steps for cosine restarts (only used for cosine_restarts)")
     parser.add_argument("--adjust_step", type=int, default=0, help="Number of steps to adjust the scheduler by. "
-                            f"Useful when you want to sync ReLoRA resets with the scheduler for a warmed up model. "
-                            f"You need to use it, when your warmup_step % relora_resets != 0")
+                            f"Useful when you want to sync ReTff resets with the scheduler for a warmed up model. "
+                            f"You need to use it, when your warmup_step % retff_resets != 0")
     parser.add_argument("--min_lr_ratio", type=float, default=0.1)
     parser.add_argument("--activation_checkpointing", action="store_true")
     parser.add_argument("--weight_decay", type=float, default=0.0)
@@ -274,19 +275,17 @@ def main(args):
         for p in model.parameters():
             p.requires_grad = False
 
-        need_linear_weight = args.relora is not None or args.force_keep_original
+        need_linear_weight = args.retff is not None or args.force_keep_original
         if args.continue_from is not None:
             need_linear_weight = True
 
-        model = ReLoRaModel(
+        model = ReTffModel(
             model,
-            r=args.lora_r,
-            lora_alpha=32,
-            lora_dropout=0.1,
+            tff_dropout=0.1,
             target_modules=["attn", "mlp"],
             trainable_scaling=args.train_scaling,
             keep_original_weights=args.continue_from is not None,
-            lora_only=not need_linear_weight,
+            tff_only=not need_linear_weight,
         )
 
         for name, param in model.named_parameters():
@@ -299,7 +298,7 @@ def main(args):
                 param.requires_grad = True
             elif "bias" in name:
                 param.requires_grad = True
-            elif "lora_" in name:
+            elif "tff_" in name:
                 param.requires_grad = True
             else:
                 param.requires_grad = False
@@ -328,25 +327,25 @@ def main(args):
 
     # print params and trainable params
     logger.info(f"\n{model}\n")
-    logger.info(f"Total params before LoRA: {params_before / 1_000_000:.2f}M")
-    logger.info(f"Total params after  LoRA: {params_after / 1_000_000:.2f}M")
+    logger.info(f"Total params before Tff: {params_before / 1_000_000:.2f}M")
+    logger.info(f"Total params after  Tff: {params_after / 1_000_000:.2f}M")
     logger.info(f"Trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1_000_000:.2f}M")
 
     logger.info(f"Saving model to {args.save_dir} every {args.save_every} update steps")
 
-    if args.use_peft and args.relora is not None:
+    if args.use_peft and args.retff is not None:
         if (params_after <= params_before):
-            raise ValueError("Total number of parameters should increase after applying LoRA with restarts")
+            raise ValueError("Total number of parameters should increase after applying Tff with restarts")
         
         if (trainable_after >= trainable_before):
-            raise ValueError("Total number of trainable parameters should decrease after applying LoRA with restarts")
+            raise ValueError("Total number of trainable parameters should decrease after applying Tff with restarts")
 
     if args.dtype in ["bf16", "bfloat16"]:
         model = model.to(device=device, dtype=torch.bfloat16)
     else:
         model = model.to(device=device)
 
-    model: Union[ReLoRaModel, LlamaForCausalLM] = torch.nn.parallel.DistributedDataParallel(
+    model: Union[ReTffModel, LlamaForCausalLM] = torch.nn.parallel.DistributedDataParallel(
         model,
         device_ids=[args.local_rank],
         output_device=args.local_rank,
@@ -358,7 +357,7 @@ def main(args):
     p_trainable_params = n_trainable_params / n_total_params
 
     trainable_params = [p for p in model.parameters() if p.requires_grad]
-    lora_params = [p for n, p in model.named_parameters() if p.requires_grad and "lora_" in n]
+    tff_params = [p for n, p in model.named_parameters() if p.requires_grad and "tff_" in n]
     trainable_params_names = [name for name, p in model.named_parameters() if p.requires_grad]
 
     # Initialize wandb
@@ -377,10 +376,8 @@ def main(args):
     })
 
     if args.use_peft:
-        logger.warning("PEFT config (all but lora_r) is hardcoded!")
+        logger.warning("PEFT config (all but tff_r) is hardcoded!")
         run_config["peft_config"] = {
-            "r": args.lora_r,
-            "alpha": 32,
             "dropout": 0.1,
             "target_modules": ["attn", "mlp"],
         }
@@ -428,7 +425,7 @@ def main(args):
         logger.info(f"Optimizer and scheduler restored from {_optimizer_dir}")
 
     # global steps and others are defined above
-    n_lora_restarts = 0
+    n_tff_restarts = 0
     pad_idx = tokenizer.pad_token_id
     update_time = time.time()
     local_step = 0  # when continue_from is used, local_step != global_step
@@ -489,24 +486,24 @@ def main(args):
                 "update_step": update_step,
                 "tokens_seen": tokens_seen,
                 "tokens_seen_before": tokens_seen_before,
-                "n_lora_restarts": n_lora_restarts,
+                "n_tff_restarts": n_tff_restarts,
                 "update_time": update_time,
             }
             with open(f"{current_model_directory}/training_state.json", "w") as f:
                 json.dump(training_state_checkpoint, f, indent=4)
 
-        # restart model after we modify the learning rate, so on the next step after the relora frequency
+        # restart model after we modify the learning rate, so on the next step after the retff frequency
         can_reset = args.continue_from_peft is not None \
-            or (args.relora is not None and local_step * args.gradient_accumulation > args.relora)
+            or (args.retff is not None and local_step * args.gradient_accumulation > args.retff)
 
-        if can_reset and update_step % args.relora == 1:
-            logger.info(f"Performing lora reset. Current lr is {optimizer.param_groups[0]['lr']}")
-            n_lora_restarts += 1
+        if can_reset and update_step % args.retff == 1:
+            logger.info(f"Performing tff reset. Current lr is {optimizer.param_groups[0]['lr']}")
+            n_tff_restarts += 1
             model.module.merge_and_reinit()
 
-            if args.reset_optimizer_on_relora:
+            if args.reset_optimizer_on_retff:
                 logger.info("Resetting optimizer states to zeros")
-                for p in lora_params:
+                for p in tff_params:
                     param_state = optimizer.state[p]
                     for key in optimizer_state_keys:
                         param_state[key] = torch.zeros_like(p.data)
@@ -529,7 +526,7 @@ def main(args):
                 n_zeros = 0
                 n_total = 0
 
-                for p in lora_params:
+                for p in tff_params:
                     param_state = optimizer.state[p]
                     reduction = partial(training_utils.random_pruning, prune_ratio=args.optimizer_random_pruning)
                     for key in optimizer_state_keys:
@@ -541,7 +538,7 @@ def main(args):
                 logger.info(f"Performing magnitude pruning of optimizer states. Pruning {args.optimizer_magnitude_pruning} percent")
                 n_zeros = 0
                 n_total = 0
-                for p in lora_params:
+                for p in tff_params:
                     param_state = optimizer.state[p]
                     reduction = partial(training_utils.magnitude_pruning, prune_ratio=args.optimizer_magnitude_pruning)
                     for key in optimizer_state_keys:
@@ -552,8 +549,8 @@ def main(args):
 
                 logger.info(f"Percent of optimizer states zeroed: {n_zeros / (1e-7 + n_total) * 100:.2f}")
 
-        if can_reset and update_step % args.relora == 2:
-            logger.info(f"First step after lora reset lr is {optimizer.param_groups[0]['lr']}")
+        if can_reset and update_step % args.retff == 2:
+            logger.info(f"First step after tff reset lr is {optimizer.param_groups[0]['lr']}")
 
         if update_step % args.eval_every == 0:
             logger.info(f"Performing evaluation at step {update_step}")
@@ -583,16 +580,16 @@ def main(args):
                 "throughput_tokens": tokens_in_update / update_time,
                 "throughput_examples": args.total_batch_size / update_time,
                 "throughput_batches": batches_in_update / update_time,
-                "n_lora_restarts": n_lora_restarts,
+                "n_tff_restarts": n_tff_restarts,
                 },
                 step=global_step,
             )
-            if args.train_scaling:
-                all_scaling_factors = []
-                for module in model.modules():
-                    if isinstance(module, ReLoRaLinear):
-                        all_scaling_factors.append(module.scaling.data.item())
-                wandb.log({"lora_scaling": torch.tensor(all_scaling_factors)}, step=global_step)
+            # if args.train_scaling:
+            #     all_scaling_factors = []
+            #     for module in model.modules():
+            #         if isinstance(module, ReLoRaLinear):
+            #             all_scaling_factors.append(module.scaling.data.item())
+            #     wandb.log({"lora_scaling": torch.tensor(all_scaling_factors)}, step=global_step)
         update_time = time.time()
 
     # ##############################
@@ -623,7 +620,7 @@ def main(args):
             "update_step": update_step,
             "tokens_seen": tokens_seen,
             "tokens_seen_before": tokens_seen_before,
-            "n_lora_restarts": n_lora_restarts,
+            "n_tff_restarts": n_tff_restarts,
             "update_time": update_time,
         }
         with open(f"{current_model_directory}/training_state.json", "w") as f:
