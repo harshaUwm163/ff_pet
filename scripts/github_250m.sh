@@ -1,38 +1,19 @@
-# CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python -m torch.distributed.run --nproc-per-node 6 torchrun_main.py \
-#    --model_config configs/llama_130m.json \
-#    --batch_size 75 \
-#    --total_batch_size 900 \
+# CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 python -m torch.distributed.run --nproc-per-node 6 torchrun_main.py \
+#    --model_config configs/llama_250m.json \
+#    --batch_size 32 \
+#    --total_batch_size 384 \
 #    --lr 5e-4 \
 #    --max_length 512 \
 #    --tags warm_start_250M \
 #    --save_every 1000 \
-#    --num_training_steps 20000
-
-# flow flush
-# CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python -m torch.distributed.run --nproc-per-node 6  torchrun_main.py \
-#     --model_config configs/llama_130m.json \
-#     --batch_size 75 \
-#     --total_batch_size 900 \
-#     --lr 1e-3 \
-#     --max_length 512 \
-#     --use_peft \
-#     --retff 20 \
-#     --cycle_length 20 \
-#     --restart_warmup_steps 10 \
-#     --scheduler cosine_restarts \
-#     --warmup_steps 10 \
-#     --reset_optimizer_on_retff True \
-#     --num_training_steps 20000 \
-#     --save_every 30 \
-#     --eval_every 30 \
-#     --continue_from checkpoints/warmup4tff/model_5000 \
-#     --tags relora_250M
+#    --num_training_steps 20000 \
+#    --exp_name warmup4tff_250m
 
 # Olvi 2
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.run --nproc-per-node 8  torchrun_main.py \
-    --model_config configs/llama_130m.json \
-    --batch_size 75 \
-    --total_batch_size 1200 \
+CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 python -m torch.distributed.run --nproc-per-node 6  torchrun_main.py \
+    --model_config configs/llama_250m.json \
+    --batch_size 32 \
+    --total_batch_size 384 \
     --lr 1e-3 \
     --max_length 512 \
     --use_peft \
