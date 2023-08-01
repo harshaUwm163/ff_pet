@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "justMyCode": true,
             "args": [
-                "--model_config", "configs/llama_9m.json",
+                "--model_config", "configs/llama_350m.json",
                 "--use_peft",
                 "--retff", "100",
                 "--reset_optimizer_on_retff", "False",
