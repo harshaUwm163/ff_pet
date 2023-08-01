@@ -1,19 +1,19 @@
-CUDA_VISIBLE_DEVICES=1,2,3,4,5 python -m torch.distributed.run --nproc-per-node 5 torchrun_main.py \
-   --model_config configs/llama_350m.json \
-   --batch_size 16 \
-   --total_batch_size 160 \
-   --lr 5e-4 \
-   --max_length 512 \
-   --tags warm_start_350M \
-   --save_every 1000 \
-   --num_training_steps 20000 \
-   --exp_name warmup4tff_350m_5gpus
+# CUDA_VISIBLE_DEVICES=1,2,3,4,5 python -m torch.distributed.run --nproc-per-node 5 torchrun_main.py \
+#    --model_config configs/llama_350m.json \
+#    --batch_size 16 \
+#    --total_batch_size 160 \
+#    --lr 5e-4 \
+#    --max_length 512 \
+#    --tags warm_start_350M \
+#    --save_every 1000 \
+#    --num_training_steps 20000 \
+#    --exp_name warmup4tff_350m_5gpus
 
 # Olvi 2
-CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 python -m torch.distributed.run --nproc-per-node 6  torchrun_main.py \
+CUDA_VISIBLE_DEVICES=1,2,3,4,5 python -m torch.distributed.run --nproc-per-node 5  torchrun_main.py \
     --model_config configs/llama_350m.json \
-    --batch_size 32 \
-    --total_batch_size 384 \
+    --batch_size 16 \
+    --total_batch_size 160 \
     --lr 1e-3 \
     --max_length 512 \
     --use_peft \
@@ -27,8 +27,8 @@ CUDA_VISIBLE_DEVICES=2,3,4,5,6,7 python -m torch.distributed.run --nproc-per-nod
     --save_every 3000 \
     --eval_every 3000 \
     # --continue_from checkpoints/warmup4tff_250m_2/model_5000 \
-    --tags relora_250M \
-    --exp_name tff_250m_20k_noWarmup \
+    --tags relora_350M \
+    --exp_name tff_350m_20k \
 
 # # Fourier
 #     --retff 20 \
