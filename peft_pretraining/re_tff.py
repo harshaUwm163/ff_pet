@@ -39,26 +39,26 @@ class ReTffModel(torch.nn.Module):
         )
 
         self.tffs_dict = {}
-        # generate the TFFs
+        # # generate the TFFs 130m params
+        # self.k_attn = 3
+        # self.l_attn = 256
+        # self.n_attn = 768
+        # self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
+
+        # self.k_mlp = 16
+        # self.l_mlp = 128
+        # self.n_mlp = 2048
+        # self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
+
         self.k_attn = 3
         self.l_attn = 256
         self.n_attn = 768
         self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
 
-        self.k_mlp = 16
+        self.k_mlp = 20
         self.l_mlp = 128
-        self.n_mlp = 2048
+        self.n_mlp = 2560
         self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
-
-        # self.k_attn = 16
-        # self.l_attn = 8
-        # self.n_attn = 128
-        # self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
-
-        # self.k_mlp = 16
-        # self.l_mlp = 22
-        # self.n_mlp = 352
-        # self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
 
         # patch methods
         self.forward = self.wrapped_model.forward
