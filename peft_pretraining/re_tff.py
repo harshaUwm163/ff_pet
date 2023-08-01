@@ -63,7 +63,7 @@ class ReTffModel(torch.nn.Module):
 
         # # generate the TFFs 250m params
         self.k_attn = 4
-        self.l_attn = 256
+        self.l_attn = 512
         self.n_attn = 1024
         self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
 
