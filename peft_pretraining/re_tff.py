@@ -39,26 +39,38 @@ class ReTffModel(torch.nn.Module):
         )
 
         self.tffs_dict = {}
-        # generate the TFFs
-        self.k_attn = 3
-        self.l_attn = 256
-        self.n_attn = 768
-        self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
-
-        self.k_mlp = 16
-        self.l_mlp = 128
-        self.n_mlp = 2048
-        self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
-
-        # self.k_attn = 16
-        # self.l_attn = 8
-        # self.n_attn = 128
+        # # generate the TFFs 130m params
+        # self.k_attn = 3
+        # self.l_attn = 256
+        # self.n_attn = 768
         # self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
 
         # self.k_mlp = 16
-        # self.l_mlp = 22
-        # self.n_mlp = 352
+        # self.l_mlp = 128
+        # self.n_mlp = 2048
         # self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
+
+        # # generate the TFFs 250m params
+        # self.k_attn = 3
+        # self.l_attn = 256
+        # self.n_attn = 768
+        # self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
+
+        # self.k_mlp = 20
+        # self.l_mlp = 128
+        # self.n_mlp = 2560
+        # self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
+
+        # # generate the TFFs 250m params
+        self.k_attn = 4
+        self.l_attn = 512
+        self.n_attn = 1024
+        self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
+
+        self.k_mlp = 12
+        self.l_mlp = 256
+        self.n_mlp = 2736
+        self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
 
         # patch methods
         self.forward = self.wrapped_model.forward
@@ -184,8 +196,8 @@ class ReTffLinear(nn.Linear):
         # the A matrix is going to be learned
         self.tff_A = nn.Linear(in_features, self.l, bias=False)
         # the B matrix is fixed to the frame matrix
-        self.tff_B = nn.Linear(self.l, out_features, bias=False)
-        self.tff_B.weight = nn.Parameter(frame, requires_grad = False)
+        self.proj_B = nn.Linear(self.l, out_features, bias=False)
+        self.proj_B.weight = nn.Parameter(frame, requires_grad = False)
 
         # Freezing the pre-trained weight matrix
         if not self.tff_only:
@@ -212,20 +224,20 @@ class ReTffLinear(nn.Linear):
             print("WARNING: Skipping merge and reinit, because only TFF parameters are used")
             return
 
-        self.weight.data += self.tff_B.weight @ self.tff_A.weight
+        self.weight.data += self.proj_B.weight @ self.tff_A.weight
         self.merged = False
         nn.init.zeros_(self.tff_A.weight)
         # nn.init.kaiming_uniform_(self.tff_A.weight, a=math.sqrt(5))
         # update the frame as well
         if new_frame is not None:
-            self.tff_B.weight = torch.nn.Parameter(new_frame.type(self.tff_A.weight.type()).to(device), requires_grad = False)
+            self.proj_B.weight = torch.nn.Parameter(new_frame.type(self.tff_A.weight.type()).to(device), requires_grad = False)
 
     def forward(self, x: torch.Tensor):
         if self.tff_only:
             # just Tff
-            return self.tff_B(self.tff_A(self.tff_dropout(x)))
+            return self.proj_B(self.tff_A(self.tff_dropout(x)))
 
         result = F.linear(x, self.weight, bias=self.bias)
 
-        result += self.tff_B(self.tff_A(self.tff_dropout(x)))
+        result += self.proj_B(self.tff_A(self.tff_dropout(x)))
         return result
