@@ -90,6 +90,7 @@ def parse_args(args):
     parser.add_argument("--workers", type=int, default=8)
 
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--exp_name", type=str, default='debug_thread', help='name of the experiments')
 
     args = parser.parse_args(args)
 
@@ -186,7 +187,11 @@ def main(args):
 
     # initialize wandb without config (it is passed later)
     if global_rank == 0:
-        wandb.init(project="peft_pretraining", tags=args.tags)
+        wandb.init( project="peft_pretraining", 
+                    tags=args.tags, 
+                    mode = 'disabled' if args.exp_name == 'debug_thread' else 'online', 
+                    name = args.exp_name,
+                    )
 
     logger.info(f"Using torch.distributed with rank {global_rank} (only rank 0 will log)")
     logger.info("*" * 40)
