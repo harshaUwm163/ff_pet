@@ -1,13 +1,13 @@
 # CUDA_VISIBLE_DEVICES=1,2,3,4,5 python -m torch.distributed.run --nproc-per-node 5 torchrun_main.py \
 #    --model_config configs/llama_350m.json \
 #    --batch_size 32 \
-#    --total_batch_size 640 \
+#    --total_batch_size 320 \
 #    --lr 5e-4 \
 #    --max_length 512 \
 #    --tags warm_start_350M \
 #    --save_every 1000 \
-#    --num_training_steps 20000 \
-#    --exp_name warmup4tff_350m_5gpus_3_lr5em4_gaccum4
+#    --num_training_steps 40000 \
+#    --exp_name warmup4tff_350m_40k_5gpus_lr5em4_gaccum2
 
 # Olvi 2
 CUDA_VISIBLE_DEVICES=1,2,3,4,5 python -m torch.distributed.run --nproc-per-node 5  torchrun_main.py \
