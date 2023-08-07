@@ -189,7 +189,7 @@ def main(args):
     if global_rank == 0:
         wandb.init( project="peft_pretraining", 
                     tags=args.tags, 
-                    mode = 'disabled' if args.exp_name == 'debug_thread' else 'online', 
+                    mode = 'offline' if args.exp_name == 'debug_thread' else 'online', 
                     name = args.exp_name,
                     )
 
