@@ -80,7 +80,7 @@ class ReTffModel(torch.nn.Module):
 
         self.k_mlp = 12
         self.l_mlp = 512
-        self.n_mlp = 5461
+        self.n_mlp = 5460
         self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
 
         # patch methods

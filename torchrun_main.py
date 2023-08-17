@@ -307,7 +307,7 @@ def main(args):
                 param.requires_grad = True
             else:
                 param.requires_grad = False
-    
+
     if args.continue_from_peft:
         logger.info(f"Loading model from {args.continue_from_peft}")
         checkpoint_path = os.path.join(args.continue_from_peft, "pytorch_model.bin")
@@ -329,6 +329,7 @@ def main(args):
 
     params_after = sum(p.numel() for p in model.parameters())
     trainable_after = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
     # print params and trainable params
     logger.info(f"\n{model}\n")
