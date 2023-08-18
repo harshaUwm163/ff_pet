@@ -80,6 +80,9 @@ def parse_args(args):
     parser.add_argument("--num_training_steps", type=int, default=10_000,
                         help="Number of **update steps** to train for. "
                              "Notice that gradient accumulation is taken into account.")
+    parser.add_argument("--num_scheduling_steps", type=int, default=None,
+                        help="Number of **scheduler steps** to train for. "
+                             "Notice that gradient accumulation is taken into account.")
     parser.add_argument("--max_train_tokens", type=training_utils.max_train_tokens_to_number, default=None,
                         help="Number of tokens to train on. Overwrites num_training_steps. "
                              "You can use M and B suffixes, e.g. 100M or 1B.")
@@ -403,10 +406,12 @@ def main(args):
     else:
         raise ValueError(f"Optimizer {args.optimizer} not supported")
 
+    if args.num_scheduling_steps is None:
+        args.num_scheduling_steps = args.num_training_steps
     scheduler = training_utils.get_scheculer(
         optimizer=optimizer,
         scheduler_type=args.scheduler,
-        num_training_steps=args.num_training_steps,
+        num_training_steps=args.num_scheduling_steps,
         warmup_steps=args.warmup_steps,
         min_lr_ratio=args.min_lr_ratio,
         cycle_length=args.cycle_length,

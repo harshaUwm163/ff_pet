@@ -8,9 +8,9 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.run --nproc-per
    --save_every 3000 \
    --num_training_steps 30000 \
    --restore_optimizer \
-   --continue_from /data/harsha/relora_exps_olvi2/model1b/warmup_20k_gaccum5/model_20001 \
-   --exp_name warmup_1b_20_30k_8gpus_lr5em4_gaccum5_int5460
-
+   --continue_from /data/harsha/relora_exps_olvi2/model1b/warmup_20k_gaccum5/model_20000 \
+   --num_scheduling_steps 20001 \
+   --exp_name warmup_1b_20_30k_8gpus_lr5em4_gaccum5_int5460 
 # # 20k to 30k steps
 # # CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.run --nproc-per-node 8  torchrun_main.py \
 # CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.run --nproc-per-node 8  torchrun_main.py \
