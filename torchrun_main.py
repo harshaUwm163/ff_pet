@@ -414,7 +414,7 @@ def main(args):
         adjust_step=args.adjust_step,
     )
 
-    if args.continue_from_peft:
+    if args.continue_from_peft or args.continue_from:
         logger.info("Setting scheduler to the same state as in the checkpoint")
         for _ in range(update_step):
             scheduler.step()
