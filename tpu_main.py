@@ -91,7 +91,7 @@ def parse_args(args):
     parser.add_argument("--save_every", type=int, default=10_000)
     parser.add_argument("--save_dir", type=str, default=None)
     parser.add_argument("--tags", type=str, default=None)
-    parser.add_argument("--dtype", type=str, default="bfloat16" if torch.cuda.is_bf16_supported() else "float32")
+    parser.add_argument("--dtype", type=str, default="bfloat16", help="this is the default, this arg is just to logging")
     parser.add_argument("--workers", type=int, default=8)
 
     parser.add_argument("--seed", type=int, default=0)
