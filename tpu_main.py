@@ -12,7 +12,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.utils.data
-import torch.distributed
+# import torch.distributed
+## tpu code
+import torch_xla
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.parallel_loader as pl
+import torch_xla.distributed.xla_multiprocessing as xmp
+import torch_xla.debug.metrics as met
 
 import transformers
 from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM
@@ -32,7 +38,6 @@ from peft_pretraining.modeling_llama import LlamaForCausalLM
 from peft_pretraining.re_tff import ReTffModel, ReTffLinear
 
 transformers.logging.set_verbosity_error()
-
 
 def parse_args(args):
     parser = argparse.ArgumentParser()
@@ -86,7 +91,7 @@ def parse_args(args):
     parser.add_argument("--save_every", type=int, default=10_000)
     parser.add_argument("--save_dir", type=str, default=None)
     parser.add_argument("--tags", type=str, default=None)
-    parser.add_argument("--dtype", type=str, default="bfloat16" if torch.cuda.is_bf16_supported() else "float32")
+    parser.add_argument("--dtype", type=str, default="bfloat16", help="this is the default, this arg is just to logging")
     parser.add_argument("--workers", type=int, default=8)
 
     parser.add_argument("--seed", type=int, default=0)
@@ -150,28 +155,32 @@ def evaluate_model(model, preprocess_batched, pad_idx, global_rank, world_size, 
     return total_loss, evaluated_on_tokens
 
 
-def main(args):
+def main(rank, world_size, args):
     # seed all
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     random.seed(args.seed)
 
-    assert "LOCAL_RANK" in os.environ, "torchrun should set LOCAL_RANK"
-    args.local_rank = int(os.environ["LOCAL_RANK"])
-    torch.cuda.set_device(args.local_rank)
-    print(f"local rank: {args.local_rank}, device: {torch.cuda.current_device()}")
+    ## torch distributed code
+    # assert "LOCAL_RANK" in os.environ, "torchrun should set LOCAL_RANK"
+    # args.local_rank = int(os.environ["LOCAL_RANK"])
+    # torch.cuda.set_device(args.local_rank)
+    # print(f"local rank: {args.local_rank}, device: {torch.cuda.current_device()}")
+    # # assumes that we are using a single node
+    # torch.distributed.init_process_group(
+    #     backend="nccl",
+    #     rank=args.local_rank,
+    #     world_size=torch.cuda.device_count()
+    # )
+    # global_rank = torch.distributed.get_rank()
+    # local_rank = global_rank % torch.cuda.device_count()
+    # world_size = torch.distributed.get_world_size()
+    # device = f"cuda:{local_rank}"
 
-    # assumes that we are using a single node
-    torch.distributed.init_process_group(
-        backend="nccl",
-        rank=args.local_rank,
-        world_size=torch.cuda.device_count()
-    )
-
-    global_rank = torch.distributed.get_rank()
-    local_rank = global_rank % torch.cuda.device_count()
-    world_size = torch.distributed.get_world_size()
-    device = f"cuda:{local_rank}"
+    ## torch_xla code 
+    global_rank = rank
+    local_rank = rank
+    device = xm.xla_device()
 
     if args.total_batch_size is not None:
         if args.gradient_accumulation is None:
@@ -214,9 +223,11 @@ def main(args):
 
     logger.info(f"Shuffling data with seed {seed_for_shuffle} (should be 42 for the first run and 42 + hash(checkpoint_path) for the runs that continue from a checkpoint)")
     data: datasets.Dataset = data.shuffle(seed=seed_for_shuffle)
-    data = datasets.distributed.split_dataset_by_node(
-        data, rank=global_rank, world_size=world_size,
-    )
+    train_sampler = torch.utils.data.distributed.DistributedSampler(data, num_replicas=world_size, rank=rank)
+    # torch distributed data split. gonna replace this with tpu version
+    # data = datasets.distributed.split_dataset_by_node(
+    #     data, rank=global_rank, world_size=world_size,
+    # )
 
     # it doesn't matter which tokenizer we use, because we train from scratch
     # T5 tokenizer was trained on C4 and we are also training on C4, so it's a good choice
@@ -233,7 +244,9 @@ def main(args):
         return batch
 
     dataset = PreprocessedIterableDataset(data, tokenizer, batch_size=args.batch_size, max_length=args.max_length)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=None, num_workers=args.workers)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=None, num_workers=args.workers, sampler=train_sampler)
+    para_loader = pl.ParallelLoader(dataloader, [device])
+    device_loader = para_loader.per_device_loader(device)
 
     model_config = AutoConfig.from_pretrained(args.model_config)
     if args.use_hf_model:
@@ -351,12 +364,13 @@ def main(args):
     else:
         model = model.to(device=device)
 
-    model: Union[ReTffModel, LlamaForCausalLM] = torch.nn.parallel.DistributedDataParallel(
+    # TODO-ahv: might need to change the typing here
+    model: Union[ReTffModel, LlamaForCausalLM] = xmp.MpModelWrapper(
         model,
-        device_ids=[args.local_rank],
-        output_device=args.local_rank,
-        broadcast_buffers=False,
-        find_unused_parameters=True,
+        # device_ids=[args.local_rank],
+        # output_device=args.local_rank,
+        # broadcast_buffers=False,
+        # find_unused_parameters=True,
     )
 
     n_total_params = sum(p.numel() for p in model.parameters())
@@ -414,7 +428,7 @@ def main(args):
         adjust_step=args.adjust_step,
     )
 
-    if args.continue_from_peft or args.continue_from:
+    if args.continue_from_peft:
         logger.info("Setting scheduler to the same state as in the checkpoint")
         for _ in range(update_step):
             scheduler.step()
@@ -431,6 +445,7 @@ def main(args):
         global_step = optimizer_checkpoint["global_step"]
         logger.info(f"Optimizer and scheduler restored from {_optimizer_dir}")
 
+
     # global steps and others are defined above
     n_tff_restarts = 0
     pad_idx = tokenizer.pad_token_id
@@ -442,7 +457,7 @@ def main(args):
     # we'll never go through all the data, so no need for epochs
     # ##############################
 
-    for batch in dataloader:
+    for batch in device_loader:
         global_step += 1
         local_step += 1
 
@@ -465,7 +480,10 @@ def main(args):
 
         # The below code is only executed during the update step
         if global_rank == 0: pbar.update(1)
-        optimizer.step()
+        ## torch optimizer step method
+        # optimizer.step()
+        ## torch_xla step: all_reduce followed by optimizer step
+        xm.optimizer_step(optimizer)
         scheduler.step()
         optimizer.zero_grad()
         update_step += 1
@@ -660,4 +678,8 @@ def main(args):
 if __name__ == "__main__":
     print("Starting script")
     args = parse_args(None)
-    main(args)
+    # main(args)
+    ## tpu code
+    world_size = 8
+
+    xmp.spawn(main, nprocs=world_size, args=(world_size, args, ), start_method='fork')
