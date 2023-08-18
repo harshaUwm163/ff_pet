@@ -248,6 +248,203 @@ def main(rank, world_size, args):
     para_loader = pl.ParallelLoader(dataloader, [device])
     device_loader = para_loader.per_device_loader(device)
 
+    model_config = AutoConfig.from_pretrained(args.model_config)
+    if args.use_hf_model:
+        model: HF_LlamaForCausalLM = AutoModelForCausalLM.from_config(model_config)
+    else:
+        model = LlamaForCausalLM(model_config)
+
+    if args.activation_checkpointing:
+        model.gradient_checkpointing_enable()
+
+    global_step = 0
+    update_step = 0
+    tokens_seen = 0
+    tokens_seen_before = 0
+
+    if args.continue_from is not None:
+        logger.info("*" * 40)
+        logger.info(f"Loading model from {args.continue_from}")
+        checkpoint_path = os.path.join(args.continue_from, "pytorch_model.bin")
+        model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"), strict=True)
+        logger.info(f"Model successfully loaded (strict=True policy)")
+
+        if os.path.exists(os.path.join(args.continue_from, "training_state.json")):
+            logger.info(f"Loading training state like global_step, update_step, and tokens_seen from {args.continue_from}")
+            with open(os.path.join(args.continue_from, "training_state.json")) as f:
+                _old_state = json.load(f)
+            global_step = _old_state["global_step"]
+            update_step = _old_state["update_step"]
+            tokens_seen = _old_state["tokens_seen"]
+            tokens_seen_before = _old_state["tokens_seen_before"]
+            logger.info(f"global_step       : {global_step}")
+            logger.info(f"update_step       : {update_step}")
+            logger.info(f"tokens_seen       : {tokens_seen}")
+            logger.info(f"tokens_seen_before: {tokens_seen_before}")
+            logger.info(f"Will train for {args.num_training_steps - update_step} update steps")
+        else:
+            logger.warning(f"Did not find training state in {args.continue_from}, global step will start from zero")
+        logger.info("*" * 40)
+
+    params_before = sum(p.numel() for p in model.parameters())
+    trainable_before = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    if args.use_peft:
+        for p in model.parameters():
+            p.requires_grad = False
+
+        need_linear_weight = args.retff is not None or args.force_keep_original
+        if args.continue_from is not None:
+            need_linear_weight = True
+
+        model = ReTffModel(
+            model,
+            tff_dropout=0.1,
+            target_modules=["attn", "mlp"],
+            trainable_scaling=args.train_scaling,
+            keep_original_weights=args.continue_from is not None,
+            tff_only=not need_linear_weight,
+        )
+
+        for name, param in model.named_parameters():
+            # LLaMa: model.norm, model.layers.input_layernorm, model.layers.post_attention_layernorm
+            if args.train_ln and "norm" in name:
+                param.requires_grad = True        
+            elif "lm_head" in name:
+                param.requires_grad = True
+            elif "embed_tokens" in name:
+                param.requires_grad = True
+            elif "bias" in name:
+                param.requires_grad = True
+            elif "tff_" in name:
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+
+    if args.continue_from_peft:
+        logger.info(f"Loading model from {args.continue_from_peft}")
+        checkpoint_path = os.path.join(args.continue_from_peft, "pytorch_model.bin")
+        model.wrapped_model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"), strict=True)
+        logger.info(f"Model successfully loaded (strict=True policy)")
+
+        logger.info(f"Loading training state like global_step, update_step, and tokens_seen from {args.continue_from}")
+        with open(os.path.join(args.continue_from_peft, "training_state.json")) as f:
+            _old_state = json.load(f)
+        global_step = _old_state["global_step"]
+        update_step = _old_state["update_step"]
+        tokens_seen = _old_state["tokens_seen"]
+        tokens_seen_before = _old_state["tokens_seen_before"]
+        logger.info(f"global_step       : {global_step}")
+        logger.info(f"update_step       : {update_step}")
+        logger.info(f"tokens_seen       : {tokens_seen}")
+        logger.info(f"tokens_seen_before: {tokens_seen_before}")
+        logger.info(f"Will train for {args.num_training_steps - update_step} update steps")
+
+    params_after = sum(p.numel() for p in model.parameters())
+    trainable_after = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+    # print params and trainable params
+    logger.info(f"\n{model}\n")
+    logger.info(f"Total params before Tff: {params_before / 1_000_000:.2f}M")
+    logger.info(f"Total params after  Tff: {params_after / 1_000_000:.2f}M")
+    logger.info(f"Trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1_000_000:.2f}M")
+
+    logger.info(f"Saving model to {args.save_dir} every {args.save_every} update steps")
+
+    if args.use_peft and args.retff is not None:
+        if (params_after <= params_before):
+            raise ValueError("Total number of parameters should increase after applying Tff with restarts")
+        
+        if (trainable_after >= trainable_before):
+            raise ValueError("Total number of trainable parameters should decrease after applying Tff with restarts")
+
+    if args.dtype in ["bf16", "bfloat16"]:
+        model = model.to(device=device, dtype=torch.bfloat16)
+    else:
+        model = model.to(device=device)
+
+    # TODO-ahv: might need to change the typing here
+    model: Union[ReTffModel, LlamaForCausalLM] = xmp.MpModelWrapper(
+        model,
+        # device_ids=[args.local_rank],
+        # output_device=args.local_rank,
+        # broadcast_buffers=False,
+        # find_unused_parameters=True,
+    )
+
+    n_total_params = sum(p.numel() for p in model.parameters())
+    n_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    p_trainable_params = n_trainable_params / n_total_params
+
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    tff_params = [p for n, p in model.named_parameters() if p.requires_grad and "tff_" in n]
+    trainable_params_names = [name for name, p in model.named_parameters() if p.requires_grad]
+
+    # Initialize wandb
+    run_config = dict(vars(args))
+    run_config.update({
+        "max_lr": run_config.pop("lr"),  # rename lr to max_lr to avoid conflicts with scheduler
+        "total_params_M": n_total_params / 1_000_000,
+        "trainable_params_M": n_trainable_params / 1_000_000,
+        "equivalent_params_M": params_before / 1_000_000,
+        "percent_trainable_params": p_trainable_params,
+        "name_trainable_params": trainable_params_names,
+        "dataset": dataset_name,
+        "model": model_config.to_dict(),
+        "world_size": world_size,
+        "device": str(device),
+    })
+
+    if args.use_peft:
+        logger.warning("PEFT config (all but tff_r) is hardcoded!")
+        run_config["peft_config"] = {
+            "dropout": 0.1,
+            "target_modules": ["attn", "mlp"],
+        }
+
+    if global_rank == 0:
+        wandb.config.update(run_config)
+        # wandb.save(os.path.abspath(__file__), policy="now") # save current script
+        # fix tqdm visual length to 80 so that the progress bar
+        # doesn't jump around when changing from external display to laptop
+        pbar = tqdm(total=args.num_training_steps - update_step, desc="Update steps", ncols=80)
+
+    optimizer_state_keys = None
+    if args.optimizer.lower() == "adam":
+        optimizer = torch.optim.Adam(trainable_params, lr=args.lr, weight_decay=args.weight_decay)
+        optimizer_state_keys = ["exp_avg", "exp_avg_sq"]
+    else:
+        raise ValueError(f"Optimizer {args.optimizer} not supported")
+
+    scheduler = training_utils.get_scheculer(
+        optimizer=optimizer,
+        scheduler_type=args.scheduler,
+        num_training_steps=args.num_training_steps,
+        warmup_steps=args.warmup_steps,
+        min_lr_ratio=args.min_lr_ratio,
+        cycle_length=args.cycle_length,
+        restart_warmup_steps=args.restart_warmup_steps,
+        adjust_step=args.adjust_step,
+    )
+
+    if args.continue_from_peft:
+        logger.info("Setting scheduler to the same state as in the checkpoint")
+        for _ in range(update_step):
+            scheduler.step()
+        logger.info(f"Scheduler state restored from {args.continue_from_peft}")
+        # current lr
+        logger.info(f"Current lr is {optimizer.param_groups[0]['lr']}")
+
+    if args.restore_optimizer:
+        _optimizer_dir = args.continue_from_peft or args.continue_from
+        optimizer_checkpoint = torch.load(os.path.join(_optimizer_dir, "optimizer.pt"), map_location="cpu")
+        optimizer.load_state_dict(optimizer_checkpoint["optimizer"])
+        scheduler.load_state_dict(optimizer_checkpoint["scheduler"])
+        update_step = optimizer_checkpoint["update_step"]
+        global_step = optimizer_checkpoint["global_step"]
+        logger.info(f"Optimizer and scheduler restored from {_optimizer_dir}")
+
 
     # global steps and others are defined above
     n_tff_restarts = 0
@@ -484,201 +681,5 @@ if __name__ == "__main__":
     # main(args)
     ## tpu code
     world_size = 8
-
-    model_config = AutoConfig.from_pretrained(args.model_config)
-    if args.use_hf_model:
-        model: HF_LlamaForCausalLM = AutoModelForCausalLM.from_config(model_config)
-    else:
-        model = LlamaForCausalLM(model_config)
-
-    if args.activation_checkpointing:
-        model.gradient_checkpointing_enable()
-
-    global_step = 0
-    update_step = 0
-    tokens_seen = 0
-    tokens_seen_before = 0
-
-    if args.continue_from is not None:
-        logger.info("*" * 40)
-        logger.info(f"Loading model from {args.continue_from}")
-        checkpoint_path = os.path.join(args.continue_from, "pytorch_model.bin")
-        model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"), strict=True)
-        logger.info(f"Model successfully loaded (strict=True policy)")
-
-        if os.path.exists(os.path.join(args.continue_from, "training_state.json")):
-            logger.info(f"Loading training state like global_step, update_step, and tokens_seen from {args.continue_from}")
-            with open(os.path.join(args.continue_from, "training_state.json")) as f:
-                _old_state = json.load(f)
-            global_step = _old_state["global_step"]
-            update_step = _old_state["update_step"]
-            tokens_seen = _old_state["tokens_seen"]
-            tokens_seen_before = _old_state["tokens_seen_before"]
-            logger.info(f"global_step       : {global_step}")
-            logger.info(f"update_step       : {update_step}")
-            logger.info(f"tokens_seen       : {tokens_seen}")
-            logger.info(f"tokens_seen_before: {tokens_seen_before}")
-            logger.info(f"Will train for {args.num_training_steps - update_step} update steps")
-        else:
-            logger.warning(f"Did not find training state in {args.continue_from}, global step will start from zero")
-        logger.info("*" * 40)
-
-    params_before = sum(p.numel() for p in model.parameters())
-    trainable_before = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-    if args.use_peft:
-        for p in model.parameters():
-            p.requires_grad = False
-
-        need_linear_weight = args.retff is not None or args.force_keep_original
-        if args.continue_from is not None:
-            need_linear_weight = True
-
-        model = ReTffModel(
-            model,
-            tff_dropout=0.1,
-            target_modules=["attn", "mlp"],
-            trainable_scaling=args.train_scaling,
-            keep_original_weights=args.continue_from is not None,
-            tff_only=not need_linear_weight,
-        )
-
-        for name, param in model.named_parameters():
-            # LLaMa: model.norm, model.layers.input_layernorm, model.layers.post_attention_layernorm
-            if args.train_ln and "norm" in name:
-                param.requires_grad = True        
-            elif "lm_head" in name:
-                param.requires_grad = True
-            elif "embed_tokens" in name:
-                param.requires_grad = True
-            elif "bias" in name:
-                param.requires_grad = True
-            elif "tff_" in name:
-                param.requires_grad = True
-            else:
-                param.requires_grad = False
-
-    if args.continue_from_peft:
-        logger.info(f"Loading model from {args.continue_from_peft}")
-        checkpoint_path = os.path.join(args.continue_from_peft, "pytorch_model.bin")
-        model.wrapped_model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"), strict=True)
-        logger.info(f"Model successfully loaded (strict=True policy)")
-
-        logger.info(f"Loading training state like global_step, update_step, and tokens_seen from {args.continue_from}")
-        with open(os.path.join(args.continue_from_peft, "training_state.json")) as f:
-            _old_state = json.load(f)
-        global_step = _old_state["global_step"]
-        update_step = _old_state["update_step"]
-        tokens_seen = _old_state["tokens_seen"]
-        tokens_seen_before = _old_state["tokens_seen_before"]
-        logger.info(f"global_step       : {global_step}")
-        logger.info(f"update_step       : {update_step}")
-        logger.info(f"tokens_seen       : {tokens_seen}")
-        logger.info(f"tokens_seen_before: {tokens_seen_before}")
-        logger.info(f"Will train for {args.num_training_steps - update_step} update steps")
-
-    params_after = sum(p.numel() for p in model.parameters())
-    trainable_after = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
-    # print params and trainable params
-    logger.info(f"\n{model}\n")
-    logger.info(f"Total params before Tff: {params_before / 1_000_000:.2f}M")
-    logger.info(f"Total params after  Tff: {params_after / 1_000_000:.2f}M")
-    logger.info(f"Trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad) / 1_000_000:.2f}M")
-
-    logger.info(f"Saving model to {args.save_dir} every {args.save_every} update steps")
-
-    if args.use_peft and args.retff is not None:
-        if (params_after <= params_before):
-            raise ValueError("Total number of parameters should increase after applying Tff with restarts")
-        
-        if (trainable_after >= trainable_before):
-            raise ValueError("Total number of trainable parameters should decrease after applying Tff with restarts")
-
-    if args.dtype in ["bf16", "bfloat16"]:
-        model = model.to(device=device, dtype=torch.bfloat16)
-    else:
-        model = model.to(device=device)
-
-    # TODO-ahv: might need to change the typing here
-    model: Union[ReTffModel, LlamaForCausalLM] = xmp.MpModelWrapper(
-        model,
-        # device_ids=[args.local_rank],
-        # output_device=args.local_rank,
-        # broadcast_buffers=False,
-        # find_unused_parameters=True,
-    )
-
-    n_total_params = sum(p.numel() for p in model.parameters())
-    n_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    p_trainable_params = n_trainable_params / n_total_params
-
-    trainable_params = [p for p in model.parameters() if p.requires_grad]
-    tff_params = [p for n, p in model.named_parameters() if p.requires_grad and "tff_" in n]
-    trainable_params_names = [name for name, p in model.named_parameters() if p.requires_grad]
-
-    # Initialize wandb
-    run_config = dict(vars(args))
-    run_config.update({
-        "max_lr": run_config.pop("lr"),  # rename lr to max_lr to avoid conflicts with scheduler
-        "total_params_M": n_total_params / 1_000_000,
-        "trainable_params_M": n_trainable_params / 1_000_000,
-        "equivalent_params_M": params_before / 1_000_000,
-        "percent_trainable_params": p_trainable_params,
-        "name_trainable_params": trainable_params_names,
-        "dataset": dataset_name,
-        "model": model_config.to_dict(),
-        "world_size": world_size,
-        "device": str(device),
-    })
-
-    if args.use_peft:
-        logger.warning("PEFT config (all but tff_r) is hardcoded!")
-        run_config["peft_config"] = {
-            "dropout": 0.1,
-            "target_modules": ["attn", "mlp"],
-        }
-
-    wandb.config.update(run_config)
-    # wandb.save(os.path.abspath(__file__), policy="now") # save current script
-    # fix tqdm visual length to 80 so that the progress bar
-    # doesn't jump around when changing from external display to laptop
-    pbar = tqdm(total=args.num_training_steps - update_step, desc="Update steps", ncols=80)
-
-    optimizer_state_keys = None
-    if args.optimizer.lower() == "adam":
-        optimizer = torch.optim.Adam(trainable_params, lr=args.lr, weight_decay=args.weight_decay)
-        optimizer_state_keys = ["exp_avg", "exp_avg_sq"]
-    else:
-        raise ValueError(f"Optimizer {args.optimizer} not supported")
-
-    scheduler = training_utils.get_scheculer(
-        optimizer=optimizer,
-        scheduler_type=args.scheduler,
-        num_training_steps=args.num_training_steps,
-        warmup_steps=args.warmup_steps,
-        min_lr_ratio=args.min_lr_ratio,
-        cycle_length=args.cycle_length,
-        restart_warmup_steps=args.restart_warmup_steps,
-        adjust_step=args.adjust_step,
-    )
-
-    if args.continue_from_peft:
-        logger.info("Setting scheduler to the same state as in the checkpoint")
-        for _ in range(update_step):
-            scheduler.step()
-        logger.info(f"Scheduler state restored from {args.continue_from_peft}")
-        # current lr
-        logger.info(f"Current lr is {optimizer.param_groups[0]['lr']}")
-
-    if args.restore_optimizer:
-        _optimizer_dir = args.continue_from_peft or args.continue_from
-        optimizer_checkpoint = torch.load(os.path.join(_optimizer_dir, "optimizer.pt"), map_location="cpu")
-        optimizer.load_state_dict(optimizer_checkpoint["optimizer"])
-        scheduler.load_state_dict(optimizer_checkpoint["scheduler"])
-        update_step = optimizer_checkpoint["update_step"]
-        global_step = optimizer_checkpoint["global_step"]
-        logger.info(f"Optimizer and scheduler restored from {_optimizer_dir}")
 
     xmp.spawn(main, nprocs=world_size, args=(world_size, args, ), start_method='fork')
