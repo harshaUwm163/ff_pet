@@ -1,7 +1,7 @@
 script_path="$(realpath "$0")"
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -m torch.distributed.run --nproc-per-node 8  torchrun_main.py \
     --model_config configs/llama_1b.json \
-    --batch_size 4 \
+    --batch_size 8 \
     --total_batch_size 320 \
     --lr 5e-4 \
     --max_length 1024 \
