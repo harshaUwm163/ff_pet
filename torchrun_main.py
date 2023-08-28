@@ -107,10 +107,7 @@ def parse_args(args):
                        "but will not save the optimizer state. "
                        "This is probably not what you want.")
 
-        
-
     return args
-
 
 @torch.no_grad()
 def evaluate_model(model, preprocess_batched, pad_idx, global_rank, world_size, device, batch_size):
