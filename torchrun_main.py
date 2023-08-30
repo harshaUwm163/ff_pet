@@ -526,7 +526,9 @@ def main(args):
         if can_reset and update_step % args.retff == 1:
             logger.info(f"Performing tff reset. Current lr is {optimizer.param_groups[0]['lr']}")
             n_tff_restarts += 1
-            model.module.merge_and_reinit(device)
+            updated_indices = model.module.merge_and_reinit(device)
+            logger.info('switched the frames')
+            print(updated_indices.items())
 
             if args.reset_optimizer_on_retff:
                 logger.info("Resetting optimizer states to zeros")

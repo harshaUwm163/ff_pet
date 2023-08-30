@@ -129,6 +129,7 @@ class ReTffModel(torch.nn.Module):
         return parent
 
     def merge_and_reinit(self, device):
+        updated_indices = {}
         for module_name, module in self.named_modules():
             if isinstance(module, ReTffLinear):
                 if 'mlp' in module_name and 'down' not in module_name:
@@ -137,8 +138,11 @@ class ReTffModel(torch.nn.Module):
                 else:
                     target_key = 'all_for_one'
                     new_tff_index = torch.randint(self.k_attn,(1, ))[0].item()
-
+                                
+                updated_indices[module_name] = new_tff_index
                 module.merge_and_reinit(new_frame=self.tffs_dict[target_key][new_tff_index], device=device)
+        
+        return updated_indices
 
     def save_pretrained(self, path):
         self.wrapped_model.save_pretrained(path)
