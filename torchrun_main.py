@@ -531,7 +531,10 @@ def main(args):
             n_tff_restarts += 1
             updated_indices = model.module.merge_and_reinit(device)
             logger.info('switched the frames')
-            print(updated_indices.items())
+            log_directory = f"{args.save_dir}/log/"
+            os.makedirs(log_directory, exist_ok=True)
+            with open(os.path.join(log_directory, f'log_{update_step}.log'), 'w')  as f:
+                print(updated_indices.items(), file=f)
 
             if args.reset_optimizer_on_retff:
                 logger.info("Resetting optimizer states to zeros")
