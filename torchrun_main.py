@@ -95,6 +95,8 @@ def parse_args(args):
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--exp_name", type=str, default='debug_thread', help='name of the experiments')
 
+    parser.add_argument("--script_path", type=str, default=None, help='path of the script')
+
     args = parser.parse_args(args)
 
     args = args_utils.check_args_torchrun_main(args)
@@ -106,7 +108,6 @@ def parse_args(args):
                        "This is probably not what you want.")
 
     return args
-
 
 @torch.no_grad()
 def evaluate_model(model, preprocess_batched, pad_idx, global_rank, world_size, device, batch_size):
@@ -170,6 +171,9 @@ def main(args):
         rank=args.local_rank,
         world_size=torch.cuda.device_count()
     )
+
+    # flag for moving the file
+    moved_script = False
 
     global_rank = torch.distributed.get_rank()
     local_rank = global_rank % torch.cuda.device_count()
@@ -408,6 +412,8 @@ def main(args):
 
     if args.num_scheduling_steps is None:
         args.num_scheduling_steps = args.num_training_steps
+
+    logger.info(f'{args.num_scheduling_steps = }')
     scheduler = training_utils.get_scheculer(
         optimizer=optimizer,
         scheduler_type=args.scheduler,
@@ -422,8 +428,10 @@ def main(args):
     if args.continue_from_peft or args.continue_from:
         scheduler_path = args.continue_from or args.continue_from_peft
         logger.info("Setting scheduler to the same state as in the checkpoint")
-        for _ in range(update_step):
+        for i in range(update_step):
             scheduler.step()
+            if (i+1) % 1000 == 0:
+                logger.info(f"{i = }. {optimizer.param_groups[0]['lr']}")
         logger.info(f"Scheduler state restored from {scheduler_path}")
         # current lr
         logger.info(f"Current lr is {optimizer.param_groups[0]['lr']}")
@@ -472,7 +480,8 @@ def main(args):
         # The below code is only executed during the update step
         if global_rank == 0: pbar.update(1)
         optimizer.step()
-        scheduler.step()
+        if update_step+1 < args.num_scheduling_steps:
+            scheduler.step()
         optimizer.zero_grad()
         update_step += 1
         update_time = time.time() - update_time
@@ -505,6 +514,13 @@ def main(args):
             with open(f"{current_model_directory}/training_state.json", "w") as f:
                 json.dump(training_state_checkpoint, f, indent=4)
 
+            # saving the script
+            if not moved_script and args.script_path is not None:
+                import shutil
+                os.makedirs(args.save_dir, exist_ok=True)
+                shutil.copy(args.script_path, args.save_dir)
+                moved_script = True
+
         # restart model after we modify the learning rate, so on the next step after the retff frequency
         can_reset = args.continue_from_peft is not None \
             or (args.retff is not None and local_step * args.gradient_accumulation > args.retff)
@@ -513,7 +529,9 @@ def main(args):
         if can_reset and update_step % args.retff == 1:
             logger.info(f"Performing tff reset. Current lr is {optimizer.param_groups[0]['lr']}")
             n_tff_restarts += 1
-            model.module.merge_and_reinit(device)
+            updated_indices = model.module.merge_and_reinit(device)
+            logger.info('switched the frames')
+            print(updated_indices.items())
 
             if args.reset_optimizer_on_retff:
                 logger.info("Resetting optimizer states to zeros")
