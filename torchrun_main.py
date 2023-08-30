@@ -420,10 +420,11 @@ def main(args):
     )
 
     if args.continue_from_peft or args.continue_from:
+        scheduler_path = args.continue_from or args.continue_from_peft
         logger.info("Setting scheduler to the same state as in the checkpoint")
         for _ in range(update_step):
             scheduler.step()
-        logger.info(f"Scheduler state restored from {args.continue_from_peft}")
+        logger.info(f"Scheduler state restored from {scheduler_path}")
         # current lr
         logger.info(f"Current lr is {optimizer.param_groups[0]['lr']}")
 
@@ -508,6 +509,7 @@ def main(args):
         can_reset = args.continue_from_peft is not None \
             or (args.retff is not None and local_step * args.gradient_accumulation > args.retff)
 
+        # here we are resetting in the next step of retff
         if can_reset and update_step % args.retff == 1:
             logger.info(f"Performing tff reset. Current lr is {optimizer.param_groups[0]['lr']}")
             n_tff_restarts += 1
