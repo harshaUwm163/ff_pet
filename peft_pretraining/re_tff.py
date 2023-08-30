@@ -22,7 +22,7 @@ class ReTffConfig:
 
 
 class ReTffModel(torch.nn.Module):
-    def __init__(self, model, tff_dropout, target_modules, keep_original_weights=True, tff_only=False, trainable_scaling=False):
+    def __init__(self, model, tff_dropout, target_modules, keep_original_weights=True, tff_only=False, trainable_scaling=False, scaling = 1.0):
 
         super().__init__()
         self.wrapped_model: nn.Module = model
@@ -31,6 +31,7 @@ class ReTffModel(torch.nn.Module):
         self.keep_original_weights = keep_original_weights
         self.tff_only = tff_only
         self.trainable_scaling = trainable_scaling
+        self.scaling = scaling
 
         self._config = ReTffConfig(
             tff_dropout=tff_dropout,
@@ -108,6 +109,7 @@ class ReTffModel(torch.nn.Module):
                 frame = self.tffs_dict[target_key][0], # init with the first frame
                 tff_dropout=self.tff_dropout,
                 tff_only=self.tff_only,
+                scaling = self.scaling
             )
             if self.keep_original_weights:
                 new_module.weight = module.weight
@@ -184,6 +186,7 @@ class ReTffLinear(nn.Linear):
         frame: torch.FloatTensor, 
         tff_dropout: float = 0.1,
         tff_only: bool = False,
+        scaling: float = 1.0,
         **kwargs,
     ):
         """Wraps linear layer x W into x W + x W_a @ W_b * lora_alpha / r
@@ -203,6 +206,7 @@ class ReTffLinear(nn.Linear):
         self.out_features = out_features
         self.tff_dropout = nn.Dropout(p=tff_dropout)
         self.tff_only = tff_only
+        self.scaling = scaling
 
         # get the dimension of the subspace
         self.l = frame.shape[-1]
@@ -250,9 +254,9 @@ class ReTffLinear(nn.Linear):
     def forward(self, x: torch.Tensor):
         if self.tff_only:
             # just Tff
-            return self.proj_B(self.tff_A(self.tff_dropout(x)))
+            return self.proj_B(self.tff_A(self.tff_dropout(x))) * self.scaling
 
         result = F.linear(x, self.weight, bias=self.bias)
 
-        result += self.proj_B(self.tff_A(self.tff_dropout(x)))
+        result += self.proj_B(self.tff_A(self.tff_dropout(x))) * self.scaling
         return result

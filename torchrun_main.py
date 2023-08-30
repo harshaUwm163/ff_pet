@@ -96,6 +96,7 @@ def parse_args(args):
     parser.add_argument("--exp_name", type=str, default='debug_thread', help='name of the experiments')
 
     parser.add_argument("--script_path", type=str, default=None, help='path of the script')
+    parser.add_argument("--scaling", type=float, default=1.0, help='scaling after applying re_tff')
 
     args = parser.parse_args(args)
 
@@ -298,6 +299,7 @@ def main(args):
             trainable_scaling=args.train_scaling,
             keep_original_weights=args.continue_from is not None,
             tff_only=not need_linear_weight,
+	    scaling = args.scaling,
         )
 
         for name, param in model.named_parameters():
