@@ -98,6 +98,13 @@ def parse_args(args):
     parser.add_argument("--script_path", type=str, default=None, help='path of the script')
     parser.add_argument("--scaling", type=float, default=1.0, help='scaling after applying re_tff')
 
+    parser.add_argument("--k_attn", type=int, default=4)
+    parser.add_argument("--l_attn", type=int, default=512)
+    parser.add_argument("--n_attn", type=int, default=2048)
+    parser.add_argument("--k_mlp", type=int, default=12)
+    parser.add_argument("--l_mlp", type=int, default=512)
+    parser.add_argument("--n_mlp", type=int, default=5460)
+
     args = parser.parse_args(args)
 
     args = args_utils.check_args_torchrun_main(args)
@@ -299,7 +306,13 @@ def main(args):
             trainable_scaling=args.train_scaling,
             keep_original_weights=args.continue_from is not None,
             tff_only=not need_linear_weight,
-	    scaling = args.scaling,
+	        scaling = args.scaling,
+            k_attn = args.k_attn,
+            l_attn = args.l_attn,
+            n_attn = args.n_attn,
+            k_mlp  = args.k_mlp,
+            l_mlp  = args.l_mlp,
+            n_mlp  = args.n_mlp,
         )
 
         for name, param in model.named_parameters():

@@ -22,7 +22,14 @@ class ReTffConfig:
 
 
 class ReTffModel(torch.nn.Module):
-    def __init__(self, model, tff_dropout, target_modules, keep_original_weights=True, tff_only=False, trainable_scaling=False, scaling = 1.0):
+    def __init__(self, model, tff_dropout, target_modules, keep_original_weights=True, tff_only=False, trainable_scaling=False, scaling = 1.0, 
+        k_attn = 4,
+        l_attn = 512,
+        n_attn = 2048,
+        k_mlp = 12,
+        l_mlp = 512,
+        n_mlp = 5460,
+        ):
 
         super().__init__()
         self.wrapped_model: nn.Module = model
@@ -73,15 +80,26 @@ class ReTffModel(torch.nn.Module):
         # self.n_mlp = 2736
         # self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
 
+        # # generate the TFFs 1b params
+        # self.k_attn = 4
+        # self.l_attn = 512
+        # self.n_attn = 2048
+        # self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
+
+        # self.k_mlp = 12
+        # self.l_mlp = 512
+        # self.n_mlp = 5460
+        # self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
+
         # generate the TFFs 1b params
-        self.k_attn = 4
-        self.l_attn = 512
-        self.n_attn = 2048
+        self.k_attn = k_attn
+        self.l_attn = l_attn
+        self.n_attn = n_attn
         self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
 
-        self.k_mlp = 12
-        self.l_mlp = 512
-        self.n_mlp = 5460
+        self.k_mlp = k_mlp
+        self.l_mlp = l_mlp
+        self.n_mlp = n_mlp
         self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
 
         # patch methods

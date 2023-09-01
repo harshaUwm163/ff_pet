@@ -20,8 +20,8 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python -m torch.distributed.run --nproc-per-node 4 
     --lr 5e-4 \
     --max_length 1024 \
     --use_peft \
-    --retff 4000 \
-    --cycle_length 4000 \
+    --retff 2000 \
+    --cycle_length 2000 \
     --restart_warmup_steps 100 \
     --scheduler cosine_restarts \
     --warmup_steps 500 \
@@ -31,7 +31,13 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python -m torch.distributed.run --nproc-per-node 4 
     --eval_every 3000 \
     --continue_from /data/harsha/relora_exps_olvi1/model1/model_6000 \
     --tags relora_1b \
-    --exp_name tff_1b_40k_4gpus_lr5em4_gaccum10_int5460_retff4000 \
+    --exp_name tff_1b_40k_4gpus_lr5em4_gaccum10_int5460_retff2k_scal4 \
     --script_path $script_path \
-    --scaling 4.0
+    --scaling 4.0 \
+    --k_attn 4 \
+    --l_attn 512 \
+    --n_attn 2048 \
+    --k_mlp 12 \
+    --l_mlp 512 \
+    --n_mlp 5460 \
 
