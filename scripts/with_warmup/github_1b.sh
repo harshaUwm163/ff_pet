@@ -29,11 +29,11 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python -m torch.distributed.run --nproc-per-node 4 
     --num_training_steps 40000 \
     --save_every 3000 \
     --eval_every 3000 \
-    --continue_from /data/harsha/relora_exps_olvi1/model1/model_6000 \
+    --continue_from /data/harsha/relora_exps_olvi2/model1b/warmup_40k_gaccum10/model_6000 \
     --tags relora_1b \
-    --exp_name tff_1b_40k_4gpus_lr5em4_gaccum10_int5460_retff2k_scal4 \
+    --exp_name tff_1b_40k_4gpus_lr5em4_gaccum10_int5460_retff2k_scal32b512 \
     --script_path $script_path \
-    --scaling 4.0 \
+    --scaling 0.0625 \
     --k_attn 4 \
     --l_attn 512 \
     --n_attn 2048 \

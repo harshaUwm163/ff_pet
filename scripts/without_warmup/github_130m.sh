@@ -1,8 +1,20 @@
+# CUDA_VISIBLE_DEVICES=1,2,3,4,5 python -m torch.distributed.run --nproc-per-node 5 torchrun_main.py \
+#    --model_config configs/llama_130m.json \
+#    --batch_size 75 \
+#    --total_batch_size 750 \
+#    --lr 1e-3 \
+#    --max_length 256 \
+#    --tags warm_start_130M \
+#    --save_every 1000 \
+#    --num_training_steps 40000 \
+#    --exp_name warmup4tff_130m_40k_5gpus_lr1em3_gaccum2
+
+# 
 script_path="$(realpath "$0")"
-CUDA_VISIBLE_DEVICES=1 python -m torch.distributed.run --nproc-per-node 1  torchrun_main.py \
+CUDA_VISIBLE_DEVICES=4,5,6,7 python -m torch.distributed.run --nproc-per-node 4  torchrun_main.py \
     --model_config configs/llama_130m.json \
     --batch_size 64 \
-    --total_batch_size 64 \
+    --total_batch_size 256 \
     --lr 1e-3 \
     --max_length 512 \
     --use_peft \
