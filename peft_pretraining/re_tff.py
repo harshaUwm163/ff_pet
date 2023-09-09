@@ -247,13 +247,13 @@ class ReTffLinear(nn.Linear):
             nn.Linear.reset_parameters(self)
             return
 
-        if not self.tff_only:
-            nn.init.zeros_(self.weight)
-            if self.bias is not None:
-                nn.init.zeros_(self.bias)
+        # if not self.tff_only:
+        #     nn.init.zeros_(self.weight)
+        #     if self.bias is not None:
+        #         nn.init.zeros_(self.bias)
 
-        # disregard the B as its the frames. A should be init to random values
-        nn.init.kaiming_uniform_(self.tff_A.weight, a=math.sqrt(5))
+        # disregard the B as its the frames. init A to the projection of W onto B
+        self.tff_A.weight.data = self.proj_B.weight.data.permute(1,0) @ self.weight.data 
     
     @torch.no_grad()
     def merge_and_reinit(self, new_frame = None, device = torch.device('cpu')):
@@ -263,11 +263,13 @@ class ReTffLinear(nn.Linear):
 
         self.weight.data += self.proj_B.weight @ self.tff_A.weight
         self.merged = False
-        nn.init.zeros_(self.tff_A.weight)
+        # nn.init.zeros_(self.tff_A.weight)
         # nn.init.kaiming_uniform_(self.tff_A.weight, a=math.sqrt(5))
         # update the frame as well
+        breakpoint()
         if new_frame is not None:
             self.proj_B.weight = torch.nn.Parameter(new_frame.type(self.tff_A.weight.type()).to(device), requires_grad = False)
+        self.tff_A.weight.data = self.proj_B.weight.data.permute(1,0) @ self.weight.data
 
     def forward(self, x: torch.Tensor):
         if self.tff_only:
