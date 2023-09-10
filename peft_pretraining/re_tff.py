@@ -124,10 +124,10 @@ class ReTffModel(torch.nn.Module):
                 target_key = 'mlp'
                 k_val = self.k_mlp
 
-            # init_frame_indices = torch.randperm(k_val)[:self.num_frames]
-            # init_frames = self.tffs_dict[target_key][init_frame_indices]
-            # init_frames = torch.cat(init_frames.unbind(), dim = 1)
-            init_frames = self.tffs_dict[target_key][0]
+            init_frame_indices = torch.randperm(k_val)[:self.num_frames]
+            init_frames = self.tffs_dict[target_key][init_frame_indices]
+            init_frames = torch.cat(init_frames.unbind(), dim = 1)
+            # init_frames = self.tffs_dict[target_key][0]
             
             new_module = ReTffLinear(
                 module.in_features,
@@ -168,13 +168,13 @@ class ReTffModel(torch.nn.Module):
                     target_key = 'all_for_one'
                     k_val = self.k_attn
 
-                # new_frame_indices = torch.randperm(k_val)[:self.num_frames]
-                # new_frames = self.tffs_dict[target_key][new_frame_indices]
-                # new_frames = torch.cat(new_frames.unbind(), dim = 1)
-                new_tff_index = torch.randint(k_val,(1, ))[0].item()
-                new_frames = self.tffs_dict[target_key][new_tff_index]
+                new_frame_indices = torch.randperm(k_val)[:self.num_frames]
+                new_frames = self.tffs_dict[target_key][new_frame_indices]
+                new_frames = torch.cat(new_frames.unbind(), dim = 1)
+                # new_tff_index = torch.randint(k_val,(1, ))[0].item()
+                # new_frames = self.tffs_dict[target_key][new_tff_index]
                                 
-                updated_indices[module_name] = new_tff_index
+                updated_indices[module_name] = new_frame_indices
                 module.merge_and_reinit(new_frame=new_frames, device=device)
         
         return updated_indices
