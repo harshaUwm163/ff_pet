@@ -105,6 +105,8 @@ def parse_args(args):
     parser.add_argument("--l_mlp", type=int, default=512)
     parser.add_argument("--n_mlp", type=int, default=5460)
 
+    parser.add_argument("--num_frames", type=int, default=8)
+
     args = parser.parse_args(args)
 
     args = args_utils.check_args_torchrun_main(args)
@@ -313,6 +315,7 @@ def main(args):
             k_mlp  = args.k_mlp,
             l_mlp  = args.l_mlp,
             n_mlp  = args.n_mlp,
+            num_frames = args.num_frames,
         )
 
         for name, param in model.named_parameters():

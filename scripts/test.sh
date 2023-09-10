@@ -19,9 +19,25 @@ CUDA_VISIBLE_DEVICES=1 python -m torch.distributed.run --nproc-per-node 1  torch
     --exp_name debug_thread \
     --script_path $script_path \
     --scaling 1.0 \
+    --num_frames 1 \
     --k_attn 3 \
     --l_attn 256 \
     --n_attn 768 \
     --k_mlp 16 \
     --l_mlp 128 \
     --n_mlp 2048 \
+
+    # for num params close to relora
+    # --k_attn 3 \
+    # --l_attn 256 \
+    # --n_attn 768 \
+    # --k_mlp 16 \
+    # --l_mlp 128 \
+    # --n_mlp 2048 \
+
+    # --k_attn 24 \
+    # --l_attn 32 \
+    # --n_attn 768 \
+    # --k_mlp 128 \
+    # --l_mlp 16 \
+    # --n_mlp 2048 \

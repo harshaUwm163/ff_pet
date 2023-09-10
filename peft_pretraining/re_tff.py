@@ -29,6 +29,7 @@ class ReTffModel(torch.nn.Module):
         k_mlp = 12,
         l_mlp = 512,
         n_mlp = 5460,
+        num_frames = 1
         ):
 
         super().__init__()
@@ -39,6 +40,7 @@ class ReTffModel(torch.nn.Module):
         self.tff_only = tff_only
         self.trainable_scaling = trainable_scaling
         self.scaling = scaling
+        self.num_frames = num_frames
 
         self._config = ReTffConfig(
             tff_dropout=tff_dropout,
@@ -117,14 +119,21 @@ class ReTffModel(torch.nn.Module):
                 continue
 
             target_key = 'all_for_one'
+            k_val = self.k_attn
             if 'mlp' in module_name and 'down' not in module_name:
                 target_key = 'mlp'
+                k_val = self.k_mlp
+
+            # init_frame_indices = torch.randperm(k_val)[:self.num_frames]
+            # init_frames = self.tffs_dict[target_key][init_frame_indices]
+            # init_frames = torch.cat(init_frames.unbind(), dim = 1)
+            init_frames = self.tffs_dict[target_key][0]
             
             new_module = ReTffLinear(
                 module.in_features,
                 module.out_features,
                 bias=module.bias is not None,
-                frame = self.tffs_dict[target_key][0], # init with the first frame
+                frame = init_frames, # init with the first frame
                 tff_dropout=self.tff_dropout,
                 tff_only=self.tff_only,
                 scaling = self.scaling
@@ -154,13 +163,19 @@ class ReTffModel(torch.nn.Module):
             if isinstance(module, ReTffLinear):
                 if 'mlp' in module_name and 'down' not in module_name:
                     target_key = 'mlp'
-                    new_tff_index = torch.randint(self.k_mlp,(1, ))[0].item()
+                    k_val = self.k_mlp
                 else:
                     target_key = 'all_for_one'
-                    new_tff_index = torch.randint(self.k_attn,(1, ))[0].item()
+                    k_val = self.k_attn
+
+                # new_frame_indices = torch.randperm(k_val)[:self.num_frames]
+                # new_frames = self.tffs_dict[target_key][new_frame_indices]
+                # new_frames = torch.cat(new_frames.unbind(), dim = 1)
+                new_tff_index = torch.randint(k_val,(1, ))[0].item()
+                new_frames = self.tffs_dict[target_key][new_tff_index]
                                 
                 updated_indices[module_name] = new_tff_index
-                module.merge_and_reinit(new_frame=self.tffs_dict[target_key][new_tff_index], device=device)
+                module.merge_and_reinit(new_frame=new_frames, device=device)
         
         return updated_indices
 
@@ -253,7 +268,8 @@ class ReTffLinear(nn.Linear):
         #         nn.init.zeros_(self.bias)
 
         # disregard the B as its the frames. init A to the projection of W onto B
-        self.tff_A.weight.data = self.proj_B.weight.data.permute(1,0) @ self.weight.data 
+        # self.tff_A.weight.data = self.proj_B.weight.data.permute(1,0) @ self.weight.data 
+        nn.init.zeros_(self.tff_A.weight)
     
     @torch.no_grad()
     def merge_and_reinit(self, new_frame = None, device = torch.device('cpu')):
@@ -268,7 +284,8 @@ class ReTffLinear(nn.Linear):
         # update the frame as well
         if new_frame is not None:
             self.proj_B.weight = torch.nn.Parameter(new_frame.type(self.tff_A.weight.type()).to(device), requires_grad = False)
-        self.tff_A.weight.data = self.proj_B.weight.data.permute(1,0) @ self.weight.data
+        # self.tff_A.weight.data = self.proj_B.weight.data.permute(1,0) @ self.weight.data
+        nn.init.zeros_(self.tff_A.weight)
 
     def forward(self, x: torch.Tensor):
         if self.tff_only:
