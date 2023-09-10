@@ -13,8 +13,8 @@ CUDA_VISIBLE_DEVICES=1 python -m torch.distributed.run --nproc-per-node 1  torch
     --warmup_steps 1 \
     --reset_optimizer_on_retff True \
     --num_training_steps 40000 \
-    --save_every 3000 \
-    --eval_every 3000 \
+    --save_every 15 \
+    --eval_every 15 \
     --tags relora_130M \
     --exp_name debug_thread \
     --script_path $script_path \

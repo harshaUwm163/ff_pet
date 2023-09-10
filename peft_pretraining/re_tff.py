@@ -266,7 +266,6 @@ class ReTffLinear(nn.Linear):
         # nn.init.zeros_(self.tff_A.weight)
         # nn.init.kaiming_uniform_(self.tff_A.weight, a=math.sqrt(5))
         # update the frame as well
-        breakpoint()
         if new_frame is not None:
             self.proj_B.weight = torch.nn.Parameter(new_frame.type(self.tff_A.weight.type()).to(device), requires_grad = False)
         self.tff_A.weight.data = self.proj_B.weight.data.permute(1,0) @ self.weight.data
