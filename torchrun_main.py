@@ -559,8 +559,12 @@ def main(args):
         # here we are resetting in the next step of retff
         if can_reset and update_step % args.retff == 1:
             logger.info(f"Performing tff reset. Current lr is {optimizer.param_groups[0]['lr']}")
+            if n_tff_restarts < args.guide_after_n_restarts:
+                draw_rand = True
+            else:
+                draw_rand = False
+            updated_indices = model.module.merge_and_reinit(device, draw_rand = draw_rand)
             n_tff_restarts += 1
-            updated_indices = model.module.merge_and_reinit(device)
             logger.info('switched the frames')
             log_directory = f"{args.save_dir}/log/"
             os.makedirs(log_directory, exist_ok=True)

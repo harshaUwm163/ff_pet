@@ -157,7 +157,7 @@ class ReTffModel(torch.nn.Module):
         parent = self.wrapped_model.get_submodule(parent_name)
         return parent
 
-    def merge_and_reinit(self, device):
+    def merge_and_reinit(self, device, draw_rand = True):
         updated_indices = {}
         for module_name, module in self.named_modules():
             if isinstance(module, ReTffLinear):
@@ -168,7 +168,21 @@ class ReTffModel(torch.nn.Module):
                     target_key = 'all_for_one'
                     k_val = self.k_attn
 
-                new_frame_indices = torch.randperm(k_val)[:self.num_frames]
+                if draw_rand:
+                    new_frame_indices = torch.randperm(k_val)[:self.num_frames]
+                else:
+                    # looking at the past data, not the latest one and making a decision
+                    dty = module.weight.type()
+                    # project the weight into different frames
+                    projs = torch.matmul(self.tffs_dict[target_key].to(device).type(dty).permute(0,2,1), module.weight)
+                    # compute the weight of projections in each dimension
+                    weights = torch.norm(projs, dim=(1,2))
+                    # weights = normalize the weights to get a probability
+                    probs = weights/weights.sum()
+                    # draw samples from this distribution without repitition
+                    new_frame_indices = torch.multinomial(probs.cpu(), self.num_frames, replacement=False)
+                    
+
                 new_frames = self.tffs_dict[target_key][new_frame_indices]
                 new_frames = torch.cat(new_frames.unbind(), dim = 1)
                 # new_tff_index = torch.randint(k_val,(1, ))[0].item()
