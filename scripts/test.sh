@@ -1,5 +1,5 @@
 script_path="$(realpath "$0")"
-CUDA_VISIBLE_DEVICES=1 python -m torch.distributed.run --nproc-per-node 1  torchrun_main.py \
+CUDA_VISIBLE_DEVICES=5 python -m torch.distributed.run --nproc-per-node 1 --master-port 1239  torchrun_main.py \
     --model_config configs/llama_130m.json \
     --batch_size 32 \
     --total_batch_size 32 \

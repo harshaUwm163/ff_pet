@@ -484,7 +484,12 @@ def main(args):
         global_step += 1
         local_step += 1
 
-        if update_step > args.num_training_steps:
+        if args.max_train_tokens is not None: 
+            if tokens_seen > args.max_train_tokens:
+                logger.info(f"Reached max number of tokens (f{args.max_train_tokens}). Stopping training.")
+                print(f"Rank {global_rank} stopping training.")
+                break
+        elif update_step > args.num_training_steps:
             logger.info(f"Reached max number of update steps (f{args.num_training_steps}). Stopping training.")
             print(f"Rank {global_rank} stopping training.")
             break
@@ -507,6 +512,8 @@ def main(args):
         if update_step+1 < args.num_scheduling_steps:
             scheduler.step()
         optimizer.zero_grad()
+        # # apply the non linearity after the updates. Also try with torch.no_grad()
+        # model.module.apply_nl()
         update_step += 1
         update_time = time.time() - update_time
 

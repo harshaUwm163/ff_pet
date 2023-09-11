@@ -179,6 +179,11 @@ class ReTffModel(torch.nn.Module):
         
         return updated_indices
 
+    # def apply_nl(self):
+    #     for module_name, module in self.named_modules():
+    #         if isinstance(module, ReTffLinear):
+    #             module.apply_nl()
+
     def save_pretrained(self, path):
         self.wrapped_model.save_pretrained(path)
         with open(os.path.join(path, "reTff_config.json"), "w") as f:
@@ -254,6 +259,8 @@ class ReTffLinear(nn.Linear):
         # Freezing the pre-trained weight matrix
         if not self.tff_only:
             self.weight.requires_grad = False
+
+        # self.update_nl = nn.GELU()
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -270,6 +277,9 @@ class ReTffLinear(nn.Linear):
         # disregard the B as its the frames. init A to the projection of W onto B
         # self.tff_A.weight.data = self.proj_B.weight.data.permute(1,0) @ self.weight.data 
         nn.init.zeros_(self.tff_A.weight)
+    
+    # def apply_nl(self):
+    #     self.tff_A.weight.data = self.update_nl(self.tff_A.weight.data).type(self.tff_A.weight.type())
     
     @torch.no_grad()
     def merge_and_reinit(self, new_frame = None, device = torch.device('cpu')):

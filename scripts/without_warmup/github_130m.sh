@@ -28,10 +28,10 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,7 python -m torch.distributed.run --nproc-per-node 
     --save_every 1000 \
     --eval_every 1000 \
     --tags relora_130M \
-    --exp_name tff_130m_40k_5gpus_lr1em3_ga1_re1k_mf_sanity \
+    --exp_name tff_130m_40k_5gpus_ga1_re1k_mf10 \
     --script_path $script_path \
     --scaling 1.0 \
-    --num_frames 8 \
+    --num_frames 10 \
     --k_attn 24 \
     --l_attn 32 \
     --n_attn 768 \
