@@ -11,10 +11,10 @@
 
 # 
 script_path="$(realpath "$0")"
-CUDA_VISIBLE_DEVICES=4,5,6,7 python -m torch.distributed.run --nproc-per-node 4  torchrun_main.py \
+CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.run --nproc-per-node 4 --master-port 1224  torchrun_main.py \
     --model_config configs/llama_130m.json \
-    --batch_size 80 \
-    --total_batch_size 320 \
+    --batch_size 64 \
+    --total_batch_size 256 \
     --lr 1e-3 \
     --max_length 512 \
     --use_peft \
@@ -23,12 +23,12 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python -m torch.distributed.run --nproc-per-node 4 
     --restart_warmup_steps 100 \
     --scheduler cosine_restarts \
     --warmup_steps 500 \
-    --reset_optimizer_on_retff True \
+    --reset_optimizer_on_retff False \
     --num_training_steps 40000 \
     --save_every 1000 \
     --eval_every 1000 \
     --tags relora_130M \
-    --exp_name tff_130m_4gpus_mf15 \
+    --exp_name tff_130m_40k_4gpus_ga1_re1k_mf10_re1k_noRestart \
     --script_path $script_path \
     --guide_after_n_restarts 20000000 \
     --scaling 1.0 \

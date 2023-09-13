@@ -106,6 +106,7 @@ def parse_args(args):
     parser.add_argument("--n_mlp", type=int, default=5460)
 
     parser.add_argument("--num_frames", type=int, default=8)
+    parser.add_argument("--guide_after_n_restarts", type=int, default=10)
 
     args = parser.parse_args(args)
 
@@ -195,6 +196,9 @@ def main(args):
             assert args.total_batch_size % world_size == 0, "total_batch_size must be divisible by world_size"
             args.gradient_accumulation = args.total_batch_size // (args.batch_size * world_size)
             assert args.gradient_accumulation > 0, "gradient_accumulation must be greater than 0"
+    else:
+        args.gradient_accumulation = 1
+        args.total_batch_size = world_size * args.batch_size
 
     assert args.gradient_accumulation * args.batch_size * world_size == args.total_batch_size, \
         "gradient_accumulation * batch_size * world_size must be equal to total_batch_size"
@@ -301,10 +305,11 @@ def main(args):
         if args.continue_from is not None:
             need_linear_weight = True
 
+        # target_modules=["attn", "mlp"],
         model = ReTffModel(
             model,
             tff_dropout=0.1,
-            target_modules=["attn", "mlp"],
+            target_modules=["attn"],
             trainable_scaling=args.train_scaling,
             keep_original_weights=args.continue_from is not None,
             tff_only=not need_linear_weight,
@@ -318,6 +323,7 @@ def main(args):
             num_frames = args.num_frames,
         )
 
+        breakpoint()
         for name, param in model.named_parameters():
             # LLaMa: model.norm, model.layers.input_layernorm, model.layers.post_attention_layernorm
             if args.train_ln and "norm" in name:
@@ -563,9 +569,9 @@ def main(args):
                 draw_rand = True
             else:
                 draw_rand = False
-            updated_indices = model.module.merge_and_reinit(device, draw_rand = draw_rand)
+            updated_indices = model.module.merge_and_reinit(device, draw_rand)
             n_tff_restarts += 1
-            logger.info('switched the frames')
+            logger.info(f'switched the frames with {draw_rand = }')
             log_directory = f"{args.save_dir}/log/"
             os.makedirs(log_directory, exist_ok=True)
             with open(os.path.join(log_directory, f'log_{update_step}.log'), 'w')  as f:

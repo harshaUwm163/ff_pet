@@ -274,7 +274,6 @@ class ReTffLinear(nn.Linear):
         if not self.tff_only:
             self.weight.requires_grad = False
 
-        # self.update_nl = nn.GELU()
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -291,9 +290,6 @@ class ReTffLinear(nn.Linear):
         # disregard the B as its the frames. init A to the projection of W onto B
         # self.tff_A.weight.data = self.proj_B.weight.data.permute(1,0) @ self.weight.data 
         nn.init.zeros_(self.tff_A.weight)
-    
-    # def apply_nl(self):
-    #     self.tff_A.weight.data = self.update_nl(self.tff_A.weight.data).type(self.tff_A.weight.type())
     
     @torch.no_grad()
     def merge_and_reinit(self, new_frame = None, device = torch.device('cpu')):
