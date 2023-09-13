@@ -28,7 +28,7 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 python -m torch.distributed.run --nproc-per-node 4 
     --save_every 1000 \
     --eval_every 1000 \
     --tags relora_130M \
-    --exp_name tff_130m_4gpus_mf15 \
+    --exp_name tff_130m_4gpus_mf15_mlpOnly \
     --script_path $script_path \
     --guide_after_n_restarts 20000000 \
     --scaling 1.0 \

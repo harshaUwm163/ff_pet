@@ -305,11 +305,12 @@ def main(args):
         if args.continue_from is not None:
             need_linear_weight = True
 
-        # target_modules=["attn", "mlp"],
+        target_modules=["mlp"]
+        must_train_paras = 'attn'
         model = ReTffModel(
             model,
             tff_dropout=0.1,
-            target_modules=["attn"],
+            target_modules=target_modules,
             trainable_scaling=args.train_scaling,
             keep_original_weights=args.continue_from is not None,
             tff_only=not need_linear_weight,
@@ -323,12 +324,13 @@ def main(args):
             num_frames = args.num_frames,
         )
 
-        breakpoint()
         for name, param in model.named_parameters():
             # LLaMa: model.norm, model.layers.input_layernorm, model.layers.post_attention_layernorm
             if args.train_ln and "norm" in name:
                 param.requires_grad = True        
             elif "lm_head" in name:
+                param.requires_grad = True
+            elif must_train_paras in name:
                 param.requires_grad = True
             elif "embed_tokens" in name:
                 param.requires_grad = True
