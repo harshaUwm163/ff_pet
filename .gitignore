@@ -173,3 +173,6 @@ cython_debug/
 *.swo
 *.swn
 *.sh~
+
+# folders
+plots/

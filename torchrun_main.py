@@ -305,8 +305,8 @@ def main(args):
         if args.continue_from is not None:
             need_linear_weight = True
 
-        target_modules=["mlp"]
-        must_train_paras = 'attn'
+        target_modules=['mlp', 'attn']
+        must_train_paras = 'dummy_name'
         model = ReTffModel(
             model,
             tff_dropout=0.1,

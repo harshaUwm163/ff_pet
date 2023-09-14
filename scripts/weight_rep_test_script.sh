@@ -1,0 +1,11 @@
+CUDA_VISIBLE_DEVICES=4 python -m torch.distributed.run --nproc-per-node 1 weight_rep_test.py \
+   --model_config configs/llama_130m.json \
+   --batch_size 75 \
+   --total_batch_size 750 \
+   --lr 1e-3 \
+   --max_length 256 \
+   --tags warm_start_130M \
+   --save_every 1000 \
+   --continue_from /data/harsha/relora_exps_olvi2/model_130m/llama_130m-2023-09-08-01-22-42/model_40001 \
+   --num_training_steps 40000 \
+   --exp_name debug_thread

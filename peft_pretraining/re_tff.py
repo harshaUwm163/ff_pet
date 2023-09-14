@@ -190,13 +190,8 @@ class ReTffModel(torch.nn.Module):
                                 
                 updated_indices[module_name] = new_frame_indices
                 module.merge_and_reinit(new_frame=new_frames, device=device)
-        
-        return updated_indices
 
-    # def apply_nl(self):
-    #     for module_name, module in self.named_modules():
-    #         if isinstance(module, ReTffLinear):
-    #             module.apply_nl()
+        return updated_indices
 
     def save_pretrained(self, path):
         self.wrapped_model.save_pretrained(path)
@@ -313,6 +308,7 @@ class ReTffLinear(nn.Linear):
             return self.proj_B(self.tff_A(self.tff_dropout(x))) * self.scaling
 
         result = F.linear(x, self.weight, bias=self.bias)
+        dropped_x = self.tff_dropout(x)
 
-        result += self.proj_B(self.tff_A(self.tff_dropout(x))) * self.scaling
+        result += self.proj_B(self.tff_A(dropped_x)) * self.scaling
         return result
