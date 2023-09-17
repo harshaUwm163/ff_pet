@@ -20,7 +20,6 @@ class ReTffConfig:
     tff_only: bool = False
     trainable_scaling: bool = False
 
-
 class ReTffModel(torch.nn.Module):
     def __init__(self, model, tff_dropout, target_modules, keep_original_weights=True, tff_only=False, trainable_scaling=False, scaling = 1.0, 
         k_attn = 4,
@@ -29,7 +28,7 @@ class ReTffModel(torch.nn.Module):
         k_mlp = 12,
         l_mlp = 512,
         n_mlp = 5460,
-        num_frames = 1
+        num_frames = 1,
         ):
 
         super().__init__()
@@ -40,7 +39,7 @@ class ReTffModel(torch.nn.Module):
         self.tff_only = tff_only
         self.trainable_scaling = trainable_scaling
         self.scaling = scaling
-        self.num_frames = num_frames
+        # self.num_frames = num_frames
 
         self._config = ReTffConfig(
             tff_dropout=tff_dropout,
@@ -107,6 +106,9 @@ class ReTffModel(torch.nn.Module):
         # patch methods
         self.forward = self.wrapped_model.forward
 
+        # get the current frame index
+        self.curr_frame_id = 1
+
         target_modules_list = target_modules
         if isinstance(target_modules_list, str):
             target_modules_list = [target_modules_list]
@@ -124,10 +126,14 @@ class ReTffModel(torch.nn.Module):
                 target_key = 'mlp'
                 k_val = self.k_mlp
 
-            init_frame_indices = torch.randperm(k_val)[:self.num_frames]
-            init_frames = self.tffs_dict[target_key][init_frame_indices]
-            init_frames = torch.cat(init_frames.unbind(), dim = 1)
+            # # using multiple frames at a time
+            # init_frame_indices = torch.randperm(k_val)[:self.num_frames]
+            # init_frames = self.tffs_dict[target_key][init_frame_indices]
+            # init_frames = torch.cat(init_frames.unbind(), dim = 1)
+            # # using a single frame at a time
             # init_frames = self.tffs_dict[target_key][0]
+            # # rank ramp
+            init_frames = torch.cat(self.tffs_dict[target_key][:self.curr_frame_id].unbind(), dim=1)
             
             new_module = ReTffLinear(
                 module.in_features,
@@ -157,40 +163,21 @@ class ReTffModel(torch.nn.Module):
         parent = self.wrapped_model.get_submodule(parent_name)
         return parent
 
-    def merge_and_reinit(self, device, draw_rand = True):
+    def merge_and_reinit(self, device, draw_rand = True, num_frames_incr = 1):
         updated_indices = {}
-        for module_name, module in self.named_modules():
-            if isinstance(module, ReTffLinear):
-                if 'mlp' in module_name and 'down' not in module_name:
-                    target_key = 'mlp'
-                    k_val = self.k_mlp
-                else:
-                    target_key = 'all_for_one'
-                    k_val = self.k_attn
+        if self.curr_frame_id < self.k_attn:
+            for module_name, module in self.named_modules():
+                if isinstance(module, ReTffLinear):
+                    if 'mlp' in module_name and 'down' not in module_name:
+                        target_key = 'mlp'
+                    else:
+                        target_key = 'all_for_one'
 
-                if draw_rand:
-                    new_frame_indices = torch.randperm(k_val)[:self.num_frames]
-                else:
-                    # looking at the past data, not the latest one and making a decision
-                    dty = module.weight.type()
-                    # project the weight into different frames
-                    projs = torch.matmul(self.tffs_dict[target_key].to(device).type(dty).permute(0,2,1), module.weight)
-                    # compute the weight of projections in each dimension
-                    weights = torch.norm(projs, dim=(1,2))
-                    # weights = normalize the weights to get a probability
-                    probs = weights/weights.sum()
-                    # draw samples from this distribution without repitition
-                    new_frame_indices = torch.multinomial(probs.cpu(), self.num_frames, replacement=False)
-                    
+                    new_frames = torch.cat(self.tffs_dict[target_key][self.curr_frame_id:self.curr_frame_id+num_frames_incr].unbind(), 
+                                           dim=1)
+                    module.merge_and_reinit(new_frame=new_frames, device=device)
 
-                new_frames = self.tffs_dict[target_key][new_frame_indices]
-                new_frames = torch.cat(new_frames.unbind(), dim = 1)
-                # new_tff_index = torch.randint(k_val,(1, ))[0].item()
-                # new_frames = self.tffs_dict[target_key][new_tff_index]
-                                
-                updated_indices[module_name] = new_frame_indices
-                module.merge_and_reinit(new_frame=new_frames, device=device)
-
+            self.curr_frame_id += num_frames_incr
         return updated_indices
 
     def save_pretrained(self, path):
@@ -225,7 +212,7 @@ class ReTffModel(torch.nn.Module):
 
 
 # The code is based on https://github.com/microsoft/LoRA/blob/main/loralib/layers.py
-class ReTffLinear(nn.Linear):
+class ReTffLinear(nn.Module):
     def __init__(
         self,
         in_features: int,
@@ -241,13 +228,7 @@ class ReTffLinear(nn.Linear):
         Notice that scale = lora_alpha / r.
         """
 
-        if not tff_only:
-            # if full model weight + tff weight
-            nn.Linear.__init__(self, in_features, out_features, **kwargs)
-        else:
-            nn.Module.__init__(self)
-            self.weight = None
-            self.bias = None
+        super().__init__()
 
         self.in_features = in_features
         self.out_features = out_features
@@ -265,26 +246,10 @@ class ReTffLinear(nn.Linear):
         self.proj_B = nn.Linear(self.l, out_features, bias=False)
         self.proj_B.weight = nn.Parameter(frame, requires_grad = False)
 
-        # Freezing the pre-trained weight matrix
-        if not self.tff_only:
-            self.weight.requires_grad = False
-
         self.reset_parameters()
 
     def reset_parameters(self):
-        if not hasattr(self, "tff_A"):
-            # we are in nn.Linear calling reset_parameters
-            nn.Linear.reset_parameters(self)
-            return
-
-        # if not self.tff_only:
-        #     nn.init.zeros_(self.weight)
-        #     if self.bias is not None:
-        #         nn.init.zeros_(self.bias)
-
-        # disregard the B as its the frames. init A to the projection of W onto B
-        # self.tff_A.weight.data = self.proj_B.weight.data.permute(1,0) @ self.weight.data 
-        nn.init.zeros_(self.tff_A.weight)
+        nn.init.kaiming_uniform_(self.tff_A.weight, a=math.sqrt(5))
     
     @torch.no_grad()
     def merge_and_reinit(self, new_frame = None, device = torch.device('cpu')):
@@ -292,23 +257,22 @@ class ReTffLinear(nn.Linear):
             print("WARNING: Skipping merge and reinit, because only TFF parameters are used")
             return
 
-        self.weight.data += self.proj_B.weight @ self.tff_A.weight
-        self.merged = False
-        # nn.init.zeros_(self.tff_A.weight)
-        # nn.init.kaiming_uniform_(self.tff_A.weight, a=math.sqrt(5))
         # update the frame as well
-        if new_frame is not None:
-            self.proj_B.weight = torch.nn.Parameter(new_frame.type(self.tff_A.weight.type()).to(device), requires_grad = False)
-        # self.tff_A.weight.data = self.proj_B.weight.data.permute(1,0) @ self.weight.data
-        nn.init.zeros_(self.tff_A.weight)
+        # if new_frame is not None:
+        #     d_type = self.proj_B.weight.type()
+        #     curr_l = new_frame.shape[-1]
+        #     # update B by appending the frames
+        #     self.proj_B.weight.data = torch.cat((self.proj_B.weight.data, new_frame.type(d_type)), dim = 1)
+        #     # extend A with zeros since we are increasing the frames
+        #     self.tff_A.weight.data = torch.cat((self.tff_A.weight.data, torch.zeros(curr_l, self.in_features).type(d_type)),
+        #                                         dim=0)
 
     def forward(self, x: torch.Tensor):
         if self.tff_only:
             # just Tff
             return self.proj_B(self.tff_A(self.tff_dropout(x))) * self.scaling
 
-        result = F.linear(x, self.weight, bias=self.bias)
         dropped_x = self.tff_dropout(x)
 
-        result += self.proj_B(self.tff_A(dropped_x)) * self.scaling
+        result = self.proj_B(self.tff_A(dropped_x)) * self.scaling
         return result

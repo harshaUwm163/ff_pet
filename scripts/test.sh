@@ -1,5 +1,4 @@
 script_path="$(realpath "$0")"
-echo "running the python torch run"
 CUDA_VISIBLE_DEVICES=5 python -m torch.distributed.run --nproc-per-node 1 torchrun_main.py \
     --model_config configs/llama_130m.json \
     --batch_size 32 \
@@ -7,28 +6,26 @@ CUDA_VISIBLE_DEVICES=5 python -m torch.distributed.run --nproc-per-node 1 torchr
     --lr 1e-3 \
     --max_length 512 \
     --use_peft \
-    --retff 10 \
-    --cycle_length 10 \
-    --restart_warmup_steps 1 \
+    --retff 200 \
+    --cycle_length 200 \
+    --restart_warmup_steps 50 \
     --scheduler cosine_restarts \
-    --warmup_steps 1 \
+    --warmup_steps 100 \
     --reset_optimizer_on_retff True \
-    --num_training_steps 40000 \
-    --save_every 150 \
-    --eval_every 150 \
+    --num_training_steps 1000 \
+    --save_every 15000 \
+    --eval_every 15000 \
     --tags relora_130M \
     --exp_name debug_thread \
     --script_path $script_path \
     --scaling 1.0 \
-    --num_frames 8 \
-    --k_attn 24 \
-    --l_attn 32 \
+    --num_frames 15 \
+    --k_attn 8 \
+    --l_attn 96 \
     --n_attn 768 \
-    --k_mlp 128 \
-    --l_mlp 16 \
+    --k_mlp 8 \
+    --l_mlp 256 \
     --n_mlp 2048 \
-
-echo "finished running the python torch "
 
     # for num params close to relora
     # --k_attn 3 \

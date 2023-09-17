@@ -374,12 +374,12 @@ def main(args):
 
     logger.info(f"Saving model to {args.save_dir} every {args.save_every} update steps")
 
-    if args.use_peft and args.retff is not None:
-        if (params_after <= params_before):
-            raise ValueError("Total number of parameters should increase after applying Tff with restarts")
-        
-        if (trainable_after >= trainable_before):
-            raise ValueError("Total number of trainable parameters should decrease after applying Tff with restarts")
+    # if args.use_peft and args.retff is not None:
+    #     if (params_after <= params_before):
+    #         raise ValueError("Total number of parameters should increase after applying Tff with restarts")
+    #     
+    #     if (trainable_after >= trainable_before):
+    #         raise ValueError("Total number of trainable parameters should decrease after applying Tff with restarts")
 
     if args.dtype in ["bf16", "bfloat16"]:
         model = model.to(device=device, dtype=torch.bfloat16)
@@ -581,13 +581,34 @@ def main(args):
             with open(os.path.join(log_directory, f'log_{update_step}.log'), 'w')  as f:
                 print(updated_indices.items(), file=f)
 
-            if args.reset_optimizer_on_retff:
-                logger.info("Resetting optimizer states to zeros")
-                for p in tff_params:
-                    param_state = optimizer.state[p]
-                    for key in optimizer_state_keys:
-                        param_state[key] = torch.zeros_like(p.data)
-            
+            params_after_reset = sum(p.numel() for p in model.parameters())
+            trainable_after_reset = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            logger.info(f'Parameters after {n_tff_restarts}th reset: {params_after_reset}')
+            logger.info(f'Trainable Parameters after {n_tff_restarts}th reset: {trainable_after_reset}')
+            logger.info(f'{model.curr_frame_id = }')
+
+            # create a new optimizer after the frames are merged
+            trainable_params = [p for p in model.parameters() if p.requires_grad]
+            if args.optimizer.lower() == "adam":
+                optimizer = torch.optim.Adam(trainable_params, lr=args.lr, weight_decay=args.weight_decay)
+                optimizer_state_keys = ["exp_avg", "exp_avg_sq"]
+            else:
+                raise ValueError(f"Optimizer {args.optimizer} not supported")
+
+            scheduler = training_utils.get_scheculer(
+                optimizer=optimizer,
+                scheduler_type=args.scheduler,
+                num_training_steps=args.num_scheduling_steps,
+                warmup_steps=args.warmup_steps,
+                min_lr_ratio=args.min_lr_ratio,
+                cycle_length=args.cycle_length,
+                restart_warmup_steps=args.restart_warmup_steps,
+                adjust_step=update_step - 1,
+            )
+
+            # to match the learning rate to the previous step
+            scheduler.step()
+
             # check optimizer learning rate
             # scheduler should provide a new warmup after the reset
             lr = optimizer.param_groups[0]["lr"]
@@ -601,33 +622,54 @@ def main(args):
                         level=wandb.AlertLevel.WARN,
                     )
 
-            if args.optimizer_random_pruning:
-                logger.info(f"Performing random pruning of optimizer states. Pruning {args.optimizer_random_pruning} percent")
-                n_zeros = 0
-                n_total = 0
+            # # need to create a new optimizer
+            # if args.reset_optimizer_on_retff:
+            #     logger.info("Resetting optimizer states to zeros")
+            #     for p in tff_params:
+            #         param_state = optimizer.state[p]
+            #         for key in optimizer_state_keys:
+            #             param_state[key] = torch.zeros_like(p.data)
+            
+            # # check optimizer learning rate
+            # # scheduler should provide a new warmup after the reset
+            # lr = optimizer.param_groups[0]["lr"]
+            # if lr > 1e-5:
+            #     alert_message = f"Optimizer lr after the reset is large. This can lead to instability. Current lr is {lr}"
+            #     logger.warning(alert_message)
+            #     if global_rank == 0:
+            #         wandb.alert(
+            #             title="Learning rate issue",
+            #             text=alert_message,
+            #             level=wandb.AlertLevel.WARN,
+            #         )
 
-                for p in tff_params:
-                    param_state = optimizer.state[p]
-                    reduction = partial(training_utils.random_pruning, prune_ratio=args.optimizer_random_pruning)
-                    for key in optimizer_state_keys:
-                        param_state[key] = reduction(param_state[key])
+            # if args.optimizer_random_pruning:
+            #     logger.info(f"Performing random pruning of optimizer states. Pruning {args.optimizer_random_pruning} percent")
+            #     n_zeros = 0
+            #     n_total = 0
 
-                logger.info(f"Percent of optimizer states zeroed: {n_zeros / (1e-7 + n_total) * 100:.2f}")
+            #     for p in tff_params:
+            #         param_state = optimizer.state[p]
+            #         reduction = partial(training_utils.random_pruning, prune_ratio=args.optimizer_random_pruning)
+            #         for key in optimizer_state_keys:
+            #             param_state[key] = reduction(param_state[key])
 
-            if args.optimizer_magnitude_pruning:
-                logger.info(f"Performing magnitude pruning of optimizer states. Pruning {args.optimizer_magnitude_pruning} percent")
-                n_zeros = 0
-                n_total = 0
-                for p in tff_params:
-                    param_state = optimizer.state[p]
-                    reduction = partial(training_utils.magnitude_pruning, prune_ratio=args.optimizer_magnitude_pruning)
-                    for key in optimizer_state_keys:
-                        param_state[key] = reduction(param_state[key])
+            #     logger.info(f"Percent of optimizer states zeroed: {n_zeros / (1e-7 + n_total) * 100:.2f}")
 
-                    n_zeros += (param_state[optimizer_state_keys[0]] == 0).sum()
-                    n_total += param_state[optimizer_state_keys[0]].numel()
+            # if args.optimizer_magnitude_pruning:
+            #     logger.info(f"Performing magnitude pruning of optimizer states. Pruning {args.optimizer_magnitude_pruning} percent")
+            #     n_zeros = 0
+            #     n_total = 0
+            #     for p in tff_params:
+            #         param_state = optimizer.state[p]
+            #         reduction = partial(training_utils.magnitude_pruning, prune_ratio=args.optimizer_magnitude_pruning)
+            #         for key in optimizer_state_keys:
+            #             param_state[key] = reduction(param_state[key])
 
-                logger.info(f"Percent of optimizer states zeroed: {n_zeros / (1e-7 + n_total) * 100:.2f}")
+            #         n_zeros += (param_state[optimizer_state_keys[0]] == 0).sum()
+            #         n_total += param_state[optimizer_state_keys[0]].numel()
+
+            #     logger.info(f"Percent of optimizer states zeroed: {n_zeros / (1e-7 + n_total) * 100:.2f}")
 
         if can_reset and update_step % args.retff == 2:
             logger.info(f"First step after tff reset lr is {optimizer.param_groups[0]['lr']}")
