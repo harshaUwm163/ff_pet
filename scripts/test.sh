@@ -6,11 +6,11 @@ CUDA_VISIBLE_DEVICES=5 python -m torch.distributed.run --nproc-per-node 1 torchr
     --lr 1e-3 \
     --max_length 512 \
     --use_peft \
-    --retff 200 \
-    --cycle_length 200 \
-    --restart_warmup_steps 50 \
+    --retff 20 \
+    --cycle_length 20 \
+    --restart_warmup_steps 5 \
     --scheduler cosine_restarts \
-    --warmup_steps 100 \
+    --warmup_steps 1 \
     --reset_optimizer_on_retff True \
     --num_training_steps 1000 \
     --save_every 15000 \
@@ -19,13 +19,21 @@ CUDA_VISIBLE_DEVICES=5 python -m torch.distributed.run --nproc-per-node 1 torchr
     --exp_name debug_thread \
     --script_path $script_path \
     --scaling 1.0 \
-    --num_frames 15 \
-    --k_attn 8 \
-    --l_attn 96 \
+    --num_frames 8 \
+    --k_attn 2 \
+    --l_attn 384 \
     --n_attn 768 \
-    --k_mlp 8 \
-    --l_mlp 256 \
+    --k_mlp 2 \
+    --l_mlp 1024 \
     --n_mlp 2048 \
+    # --scaling 1.0 \
+    # --num_frames 15 \
+    # --k_attn 8 \
+    # --l_attn 96 \
+    # --n_attn 768 \
+    # --k_mlp 8 \
+    # --l_mlp 256 \
+    # --n_mlp 2048 \
 
     # for num params close to relora
     # --k_attn 3 \

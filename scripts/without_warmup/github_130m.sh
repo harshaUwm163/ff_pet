@@ -18,8 +18,8 @@ CUDA_VISIBLE_DEVICES=4,5 python -m torch.distributed.run --nproc-per-node 2  tor
     --lr 1e-3 \
     --max_length 256 \
     --use_peft \
-    --retff 2000 \
-    --cycle_length 2000 \
+    --retff 600 \
+    --cycle_length 600 \
     --restart_warmup_steps 100 \
     --scheduler cosine_restarts \
     --warmup_steps 500 \
@@ -28,7 +28,7 @@ CUDA_VISIBLE_DEVICES=4,5 python -m torch.distributed.run --nproc-per-node 2  tor
     --save_every 1000 \
     --eval_every 1000 \
     --tags relora_130M \
-    --exp_name rank_ramp_tff_130m_k2 \
+    --exp_name rr_tff_130m_k2_fasterSwitch \
     --script_path $script_path \
     --guide_after_n_restarts 20000000 \
     --scaling 1.0 \

@@ -305,10 +305,10 @@ def main(args):
         if args.continue_from is not None:
             need_linear_weight = True
 
-        # target_modules=['attn']
-        # must_train_paras = 'mlp'
-        target_modules=['attn', 'mlp']
-        must_train_paras = 'dummy'
+        target_modules=['attn']
+        must_train_paras = 'mlp'
+        # target_modules=['attn', 'mlp']
+        # must_train_paras = 'dummy'
         model = ReTffModel(
             model,
             tff_dropout=0.1,
@@ -325,6 +325,7 @@ def main(args):
             n_mlp  = args.n_mlp,
             num_frames = args.num_frames,
         )
+
 
         for name, param in model.named_parameters():
             # LLaMa: model.norm, model.layers.input_layernorm, model.layers.post_attention_layernorm
@@ -585,26 +586,31 @@ def main(args):
             trainable_after_reset = sum(p.numel() for p in model.parameters() if p.requires_grad)
             logger.info(f'Parameters after {n_tff_restarts}th reset: {params_after_reset}')
             logger.info(f'Trainable Parameters after {n_tff_restarts}th reset: {trainable_after_reset}')
-            logger.info(f'{model.curr_frame_id = }')
+            logger.info(f'{model.module.curr_frame_id = }')
+            breakpoint()
 
             # create a new optimizer after the frames are merged
-            trainable_params = [p for p in model.parameters() if p.requires_grad]
-            if args.optimizer.lower() == "adam":
-                optimizer = torch.optim.Adam(trainable_params, lr=args.lr, weight_decay=args.weight_decay)
-                optimizer_state_keys = ["exp_avg", "exp_avg_sq"]
-            else:
-                raise ValueError(f"Optimizer {args.optimizer} not supported")
+            with torch.no_grad():
+                trainable_params = [p for p in model.parameters() if p.requires_grad]
+                if args.optimizer.lower() == "adam":
+                    optimizer = torch.optim.Adam(trainable_params, lr=args.lr, weight_decay=args.weight_decay)
+                    optimizer_state_keys = ["exp_avg", "exp_avg_sq"]
+                else:
+                    raise ValueError(f"Optimizer {args.optimizer} not supported")
 
-            scheduler = training_utils.get_scheculer(
-                optimizer=optimizer,
-                scheduler_type=args.scheduler,
-                num_training_steps=args.num_scheduling_steps,
-                warmup_steps=args.warmup_steps,
-                min_lr_ratio=args.min_lr_ratio,
-                cycle_length=args.cycle_length,
-                restart_warmup_steps=args.restart_warmup_steps,
-                adjust_step=update_step - 1,
-            )
+                # merge the states of the optimizer
+
+                logger.info(f'{args.num_scheduling_steps = } {update_step-1 = } {args.warmup_steps = }')
+                scheduler = training_utils.get_scheculer(
+                    optimizer=optimizer,
+                    scheduler_type=args.scheduler,
+                    num_training_steps=args.num_scheduling_steps,
+                    warmup_steps=args.warmup_steps,
+                    min_lr_ratio=args.min_lr_ratio,
+                    cycle_length=args.cycle_length,
+                    restart_warmup_steps=args.restart_warmup_steps,
+                    adjust_step=update_step - 1,
+                )
 
             # to match the learning rate to the previous step
             scheduler.step()

@@ -20,15 +20,15 @@ CUDA_VISIBLE_DEVICES=4,5 python -m torch.distributed.run --nproc-per-node 2  tor
     --lr 5e-4 \
     --max_length 1024 \
     --use_peft \
-    --retff 5000 \
-    --cycle_length 5000 \
+    --retff 50000 \
+    --cycle_length 50000 \
     --restart_warmup_steps 100 \
     --scheduler cosine_restarts \
     --warmup_steps 500 \
     --reset_optimizer_on_retff True \
-    --num_training_steps 40000 \
-    --save_every 5000 \
-    --eval_every 5000 \
+    --num_training_steps 400000 \
+    --save_every 50000 \
+    --eval_every 50000 \
     --tags relora_1b \
     --exp_name time_1b_tff_attn_mlp \
     --script_path $script_path \

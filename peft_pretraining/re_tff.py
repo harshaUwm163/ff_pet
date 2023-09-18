@@ -258,14 +258,14 @@ class ReTffLinear(nn.Module):
             return
 
         # update the frame as well
-        # if new_frame is not None:
-        #     d_type = self.proj_B.weight.type()
-        #     curr_l = new_frame.shape[-1]
-        #     # update B by appending the frames
-        #     self.proj_B.weight.data = torch.cat((self.proj_B.weight.data, new_frame.type(d_type)), dim = 1)
-        #     # extend A with zeros since we are increasing the frames
-        #     self.tff_A.weight.data = torch.cat((self.tff_A.weight.data, torch.zeros(curr_l, self.in_features).type(d_type)),
-        #                                         dim=0)
+        if new_frame is not None:
+            d_type = self.proj_B.weight.type()
+            curr_l = new_frame.shape[-1]
+            # update B by appending the frames
+            self.proj_B.weight.data = torch.cat((self.proj_B.weight.data, new_frame.type(d_type)), dim = 1)
+            # extend A with zeros since we are increasing the frames
+            self.tff_A.weight.data = torch.cat((self.tff_A.weight.data, torch.zeros(curr_l, self.in_features).type(d_type)),
+                                                dim=0)
 
     def forward(self, x: torch.Tensor):
         if self.tff_only:
