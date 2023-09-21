@@ -107,7 +107,7 @@ class ReTffModel(torch.nn.Module):
         self.forward = self.wrapped_model.forward
 
         # get the current frame index
-        self.curr_frame_id = 1
+        self.curr_frame_id = num_frames
 
         target_modules_list = target_modules
         if isinstance(target_modules_list, str):
@@ -164,7 +164,7 @@ class ReTffModel(torch.nn.Module):
         return parent
 
     def merge_and_reinit(self, device, draw_rand = True, num_frames_incr = 1):
-        updated_indices = {}
+        updated_indices = False
         if self.curr_frame_id < self.k_attn:
             for module_name, module in self.named_modules():
                 if isinstance(module, ReTffLinear):
@@ -178,6 +178,7 @@ class ReTffModel(torch.nn.Module):
                     module.merge_and_reinit(new_frame=new_frames, device=device)
 
             self.curr_frame_id += num_frames_incr
+            updated_indices = True
         return updated_indices
 
     def save_pretrained(self, path):
@@ -266,7 +267,7 @@ class ReTffLinear(nn.Module):
             # extend A with zeros since we are increasing the frames
             self.tff_A.weight.data = torch.cat((self.tff_A.weight.data, torch.zeros(curr_l, self.in_features).type(d_type)),
                                                 dim=0)
-
+        
     def forward(self, x: torch.Tensor):
         if self.tff_only:
             # just Tff

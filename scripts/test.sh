@@ -19,13 +19,15 @@ CUDA_VISIBLE_DEVICES=5 python -m torch.distributed.run --nproc-per-node 1 torchr
     --exp_name debug_thread \
     --script_path $script_path \
     --scaling 1.0 \
-    --num_frames 8 \
+    --num_frames 1 \
     --k_attn 2 \
     --l_attn 384 \
     --n_attn 768 \
     --k_mlp 2 \
     --l_mlp 1024 \
     --n_mlp 2048 \
+    --merged_model_path /data/harsha/ff_pet/checkpoints/llama_130m-2023-09-18-03-21-55/ReTffModel_1.pt \
+    # --merged_model_path 'data' \ 
     # --scaling 1.0 \
     # --num_frames 15 \
     # --k_attn 8 \

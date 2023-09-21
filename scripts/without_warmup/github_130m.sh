@@ -11,15 +11,15 @@
 
 # 
 script_path="$(realpath "$0")"
-CUDA_VISIBLE_DEVICES=4,5 python -m torch.distributed.run --nproc-per-node 2  torchrun_main.py \
+CUDA_VISIBLE_DEVICES=1,5 python -m torch.distributed.run --nproc-per-node 2  torchrun_main.py \
     --model_config configs/llama_130m.json \
     --batch_size 128 \
     --total_batch_size 256 \
     --lr 1e-3 \
     --max_length 256 \
     --use_peft \
-    --retff 600 \
-    --cycle_length 600 \
+    --retff 1000 \
+    --cycle_length 1000 \
     --restart_warmup_steps 100 \
     --scheduler cosine_restarts \
     --warmup_steps 500 \
@@ -28,17 +28,18 @@ CUDA_VISIBLE_DEVICES=4,5 python -m torch.distributed.run --nproc-per-node 2  tor
     --save_every 1000 \
     --eval_every 1000 \
     --tags relora_130M \
-    --exp_name rr_tff_130m_k2_fasterSwitch \
+    --exp_name rr_tff_130m_k2_itr2 \
     --script_path $script_path \
     --guide_after_n_restarts 20000000 \
     --scaling 1.0 \
-    --num_frames 8 \
+    --num_frames 1 \
     --k_attn 2 \
     --l_attn 384 \
     --n_attn 768 \
     --k_mlp 2 \
     --l_mlp 1024 \
     --n_mlp 2048 \
+    --merged_model_path /data/harsha/ff_pet/checkpoints/llama_130m-2023-09-18-04-28-35/ReTffModel_1.pt \
 
     # for num params close to relora
     # --num_frames 1 \

@@ -108,6 +108,8 @@ def parse_args(args):
     parser.add_argument("--num_frames", type=int, default=8)
     parser.add_argument("--guide_after_n_restarts", type=int, default=10)
 
+    parser.add_argument("--merged_model_path", type=str, default=None, help='path to the merged model')
+
     args = parser.parse_args(args)
 
     args = args_utils.check_args_torchrun_main(args)
@@ -305,6 +307,20 @@ def main(args):
         if args.continue_from is not None:
             need_linear_weight = True
 
+        if args.merged_model_path is not None:
+            prev_train_state = torch.load(args.merged_model_path)
+            args.num_frames = prev_train_state['num_frames']
+            global_step = prev_train_state["global_step"]
+            update_step = prev_train_state["update_step"]
+            tokens_seen = prev_train_state["tokens_seen"]
+            tokens_seen_before = prev_train_state["tokens_seen_before"]
+            logger.info(f"global_step       : {global_step}")
+            logger.info(f"update_step       : {update_step}")
+            logger.info(f"tokens_seen       : {tokens_seen}")
+            logger.info(f"tokens_seen_before: {tokens_seen_before}")
+            logger.info(f"Will train for {args.num_training_steps - update_step} update steps")
+            args.adjust_step = update_step-1
+
         target_modules=['attn']
         must_train_paras = 'mlp'
         # target_modules=['attn', 'mlp']
@@ -326,6 +342,8 @@ def main(args):
             num_frames = args.num_frames,
         )
 
+        if args.merged_model_path is not None:
+            model.load_state_dict(prev_train_state['model_state_dict'])
 
         for name, param in model.named_parameters():
             # LLaMa: model.norm, model.layers.input_layernorm, model.layers.post_attention_layernorm
@@ -579,41 +597,28 @@ def main(args):
             logger.info(f'switched the frames with {draw_rand = }')
             log_directory = f"{args.save_dir}/log/"
             os.makedirs(log_directory, exist_ok=True)
-            with open(os.path.join(log_directory, f'log_{update_step}.log'), 'w')  as f:
-                print(updated_indices.items(), file=f)
 
             params_after_reset = sum(p.numel() for p in model.parameters())
             trainable_after_reset = sum(p.numel() for p in model.parameters() if p.requires_grad)
             logger.info(f'Parameters after {n_tff_restarts}th reset: {params_after_reset}')
             logger.info(f'Trainable Parameters after {n_tff_restarts}th reset: {trainable_after_reset}')
             logger.info(f'{model.module.curr_frame_id = }')
-            breakpoint()
-
-            # create a new optimizer after the frames are merged
-            with torch.no_grad():
-                trainable_params = [p for p in model.parameters() if p.requires_grad]
-                if args.optimizer.lower() == "adam":
-                    optimizer = torch.optim.Adam(trainable_params, lr=args.lr, weight_decay=args.weight_decay)
-                    optimizer_state_keys = ["exp_avg", "exp_avg_sq"]
-                else:
-                    raise ValueError(f"Optimizer {args.optimizer} not supported")
-
-                # merge the states of the optimizer
-
-                logger.info(f'{args.num_scheduling_steps = } {update_step-1 = } {args.warmup_steps = }')
-                scheduler = training_utils.get_scheculer(
-                    optimizer=optimizer,
-                    scheduler_type=args.scheduler,
-                    num_training_steps=args.num_scheduling_steps,
-                    warmup_steps=args.warmup_steps,
-                    min_lr_ratio=args.min_lr_ratio,
-                    cycle_length=args.cycle_length,
-                    restart_warmup_steps=args.restart_warmup_steps,
-                    adjust_step=update_step - 1,
-                )
-
-            # to match the learning rate to the previous step
-            scheduler.step()
+            # if not all the frames have been exhausted,
+            if updated_indices:
+                curr_train_state = {
+                    'model_state_dict': model.module.state_dict(),
+                    'num_frames': model.module.curr_frame_id,
+                    'global_step': global_step,
+                    'update_step': update_step,
+                    'tokens_seen': tokens_seen,
+                    'tokens_seen_before': tokens_seen_before,
+                    'n_tff_restarts': n_tff_restarts,
+                    'update_time': update_time,
+                }
+                ckpt_name = os.path.join(args.save_dir,f'ReTffModel_{n_tff_restarts}.pt')
+                torch.save(curr_train_state, ckpt_name ) 
+                logger.info(f'saving the fused model to {ckpt_name}')
+                exit()
 
             # check optimizer learning rate
             # scheduler should provide a new warmup after the reset
