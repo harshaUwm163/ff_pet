@@ -13,8 +13,8 @@
 script_path="$(realpath "$0")"
 CUDA_VISIBLE_DEVICES=4,5 python -m torch.distributed.run --nproc-per-node 2  torchrun_main.py \
     --model_config configs/llama_130m.json \
-    --batch_size 170 \
-    --total_batch_size 340 \
+    --batch_size 120 \
+    --total_batch_size 240 \
     --lr 1e-3 \
     --max_length 256 \
     --use_peft \
@@ -32,7 +32,7 @@ CUDA_VISIBLE_DEVICES=4,5 python -m torch.distributed.run --nproc-per-node 2  tor
     --script_path $script_path \
     --guide_after_n_restarts 100000000000000000000000000000000000000000 \
     --scaling 1.0 \
-    --num_frames 8 \
+    --num_frames 1 \
     --k_attn 2 \
     --l_attn 384 \
     --n_attn 768 \

@@ -7,11 +7,11 @@
 #    --save_every 1000 \
 #    --num_training_steps 40000 \
 #    --exp_name time_130m_full_rank
-   # --exp_name warmup4tff_130m_40k_5gpus_lr1em3_gaccum2
+#    --exp_name warmup4tff_130m_40k_5gpus_lr1em3_gaccum2
 
 # 
 script_path="$(realpath "$0")"
-CUDA_VISIBLE_DEVICES=4,5 python -m torch.distributed.run --nproc-per-node 2  torchrun_main.py \
+CUDA_VISIBLE_DEVICES=0,5,6,7 python -m torch.distributed.run --nproc-per-node 4  torchrun_main.py \
     --model_config configs/llama_130m.json \
     --batch_size 174 \
     --total_batch_size 348 \
@@ -23,9 +23,9 @@ CUDA_VISIBLE_DEVICES=4,5 python -m torch.distributed.run --nproc-per-node 2  tor
     --scheduler cosine_restarts \
     --warmup_steps 500 \
     --reset_optimizer_on_retff True \
-    --num_training_steps 40000 \
-    --save_every 1000 \
-    --eval_every 1000 \
+    --num_training_steps 20000 \
+    --save_every 2000 \
+    --eval_every 2000 \
     --tags relora_130M \
     --script_path $script_path \
     --guide_after_n_restarts 20000000 \

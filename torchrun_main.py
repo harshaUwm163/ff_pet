@@ -105,8 +105,9 @@ def parse_args(args):
     parser.add_argument("--l_mlp", type=int, default=512)
     parser.add_argument("--n_mlp", type=int, default=5460)
 
-    parser.add_argument("--num_frames", type=int, default=8)
+    parser.add_argument("--num_frames", type=int, default=1)
     parser.add_argument("--guide_after_n_restarts", type=int, default=10)
+    parser.add_argument("--num_frames_incr", type=int, default=1)
 
     args = parser.parse_args(args)
 
@@ -323,7 +324,8 @@ def main(args):
             k_mlp  = args.k_mlp,
             l_mlp  = args.l_mlp,
             n_mlp  = args.n_mlp,
-            num_frames = args.num_frames,
+            num_frames_enabled = args.num_frames,
+            num_frames_incr = args.num_frames_incr
         )
 
         for name, param in model.named_parameters():
@@ -339,7 +341,8 @@ def main(args):
             elif "bias" in name:
                 param.requires_grad = True
             elif "tff_" in name:
-                param.requires_grad = True
+                pass # this is taken care at the model level itself
+                # param.requires_grad = True
             else:
                 param.requires_grad = False
 
@@ -374,12 +377,12 @@ def main(args):
 
     logger.info(f"Saving model to {args.save_dir} every {args.save_every} update steps")
 
-    if args.use_peft and args.retff is not None:
-        if (params_after <= params_before):
-            raise ValueError("Total number of parameters should increase after applying Tff with restarts")
-        
-        if (trainable_after >= trainable_before):
-            raise ValueError("Total number of trainable parameters should decrease after applying Tff with restarts")
+    # if args.use_peft and args.retff is not None:
+    #     if (params_after <= params_before):
+    #         raise ValueError("Total number of parameters should increase after applying Tff with restarts")
+    #     
+    #     if (trainable_after >= trainable_before):
+    #         raise ValueError("Total number of trainable parameters should decrease after applying Tff with restarts")
 
     if args.dtype in ["bf16", "bfloat16"]:
         model = model.to(device=device, dtype=torch.bfloat16)
@@ -569,17 +572,21 @@ def main(args):
         # here we are resetting in the next step of retff
         if can_reset and update_step % args.retff == 1:
             logger.info(f"Performing tff reset. Current lr is {optimizer.param_groups[0]['lr']}")
-            if n_tff_restarts < args.guide_after_n_restarts:
-                draw_rand = True
-            else:
-                draw_rand = False
-            updated_indices = model.module.merge_and_reinit(device, draw_rand)
+            breakpoint()
+            model.module.merge_and_reinit()
+            params_after_merge = sum(p.numel() for p in model.parameters())
+            trainable_after_merge = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            logger.info(f"Total params after merge : {params_after_merge / 1_000_000:.2f}M")
+            logger.info(f"Total trainable params after merge : {trainable_after_merge / 1_000_000:.2f}M")
+            logger.info(f'{model.module.num_frames_enabled = }')
+            wandb.log({
+                "total_params": params_after_merge,
+                "trainable_params": trainable_after_merge,
+                "num_frames_enabled": model.module.num_frames_enabled,
+                },
+                step=global_step,
+            )
             n_tff_restarts += 1
-            logger.info(f'switched the frames with {draw_rand = }')
-            log_directory = f"{args.save_dir}/log/"
-            os.makedirs(log_directory, exist_ok=True)
-            with open(os.path.join(log_directory, f'log_{update_step}.log'), 'w')  as f:
-                print(updated_indices.items(), file=f)
 
             if args.reset_optimizer_on_retff:
                 logger.info("Resetting optimizer states to zeros")
