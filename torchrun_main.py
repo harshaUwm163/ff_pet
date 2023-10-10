@@ -209,7 +209,7 @@ def main(args):
 
     # initialize wandb without config (it is passed later)
     if global_rank == 0:
-        wandb.init( project="peft_pretraining", 
+        wandb.init( project="peft_pt_re", 
                     tags=args.tags, 
                     mode = 'offline' if args.exp_name == 'debug_thread' else 'online', 
                     name = args.exp_name,
@@ -572,20 +572,20 @@ def main(args):
         # here we are resetting in the next step of retff
         if can_reset and update_step % args.retff == 1:
             logger.info(f"Performing tff reset. Current lr is {optimizer.param_groups[0]['lr']}")
-            breakpoint()
             model.module.merge_and_reinit()
             params_after_merge = sum(p.numel() for p in model.parameters())
             trainable_after_merge = sum(p.numel() for p in model.parameters() if p.requires_grad)
             logger.info(f"Total params after merge : {params_after_merge / 1_000_000:.2f}M")
             logger.info(f"Total trainable params after merge : {trainable_after_merge / 1_000_000:.2f}M")
             logger.info(f'{model.module.num_frames_enabled = }')
-            wandb.log({
-                "total_params": params_after_merge,
-                "trainable_params": trainable_after_merge,
-                "num_frames_enabled": model.module.num_frames_enabled,
-                },
-                step=global_step,
-            )
+            if global_rank == 0:
+                wandb.log({
+                    "total_params": params_after_merge,
+                    "trainable_params": trainable_after_merge,
+                    "num_frames_enabled": model.module.num_frames_enabled,
+                    },
+                    step=global_step,
+                )
             n_tff_restarts += 1
 
             if args.reset_optimizer_on_retff:

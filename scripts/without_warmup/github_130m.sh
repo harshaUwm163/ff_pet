@@ -13,32 +13,35 @@
 script_path="$(realpath "$0")"
 CUDA_VISIBLE_DEVICES=4,5 python -m torch.distributed.run --nproc-per-node 2 torchrun_main.py \
     --model_config configs/llama_130m.json \
-    --batch_size 80 \
-    --total_batch_size 160 \
+    --batch_size 160 \
+    --total_batch_size 320 \
     --lr 1e-3 \
-    --max_length 512 \
+    --max_length 256 \
     --use_peft \
-    --retff 1000 \
-    --cycle_length 1000 \
+    --retff 10000 \
+    --cycle_length 10000 \
     --restart_warmup_steps 100 \
-    --scheduler cosine_restarts \
     --warmup_steps 500 \
+    --scheduler cosine_restarts \
     --reset_optimizer_on_retff True \
-    --num_training_steps 40000 \
-    --save_every 1000 \
-    --eval_every 1000 \
+    --num_training_steps 20000 \
+    --save_every 2000 \
+    --eval_every 2000 \
     --tags relora_130M \
-    --exp_name tff_130m_2gpus_rrm \
     --script_path $script_path \
-    --guide_after_n_restarts 20000000 \
     --scaling 1.0 \
     --num_frames 1 \
-    --k_attn 32 \
-    --l_attn 24 \
+    --num_frames_incr 1 \
+    --k_attn 2 \
+    --l_attn 384 \
     --n_attn 768 \
-    --k_mlp 32 \
-    --l_mlp 64 \
+    --k_mlp 2 \
+    --l_mlp 1024 \
     --n_mlp 2048 \
+    --exp_name tff_130m_2gpus_k2l384_20k \
+    # --restart_warmup_steps 100 \
+    # --warmup_steps 500 \
+    # --exp_name debug_thread \
 
     # for num params close to relora
     # --num_frames 1 \

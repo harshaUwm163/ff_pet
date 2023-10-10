@@ -51,49 +51,6 @@ class ReTffModel(torch.nn.Module):
         )
 
         self.tffs_dict = {}
-        # # generate the TFFs 130m params
-        # self.k_attn = 3
-        # self.l_attn = 256
-        # self.n_attn = 768
-        # self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
-
-        # self.k_mlp = 16
-        # self.l_mlp = 128
-        # self.n_mlp = 2048
-        # self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
-
-        # # generate the TFFs 250m params
-        # self.k_attn = 3
-        # self.l_attn = 256
-        # self.n_attn = 768
-        # self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
-
-        # self.k_mlp = 20
-        # self.l_mlp = 128
-        # self.n_mlp = 2560
-        # self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
-
-        # # generate the TFFs 350m params
-        # self.k_attn = 4
-        # self.l_attn = 512
-        # self.n_attn = 1024
-        # self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
-
-        # self.k_mlp = 12
-        # self.l_mlp = 256
-        # self.n_mlp = 2736
-        # self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
-
-        # # generate the TFFs 1b params
-        # self.k_attn = 4
-        # self.l_attn = 512
-        # self.n_attn = 2048
-        # self.tffs_dict['all_for_one'] = construct_real_tff(self.k_attn, self.l_attn // 2, self.n_attn // 2).permute(0,2,1)
-
-        # self.k_mlp = 12
-        # self.l_mlp = 512
-        # self.n_mlp = 5460
-        # self.tffs_dict['mlp'] = construct_real_tff(self.k_mlp, self.l_mlp // 2, self.n_mlp // 2).permute(0,2,1)
 
         self.k_attn = k_attn
         self.l_attn = l_attn
@@ -134,7 +91,7 @@ class ReTffModel(torch.nn.Module):
                 module.in_features,
                 module.out_features,
                 bias=module.bias is not None,
-                frames = self.tffs_dict[target_key], # init with the first frame
+                frames = self.tffs_dict[target_key], # sending all frames here
                 tff_dropout=self.tff_dropout,
                 tff_only=self.tff_only,
                 scaling = self.scaling,
@@ -230,35 +187,28 @@ class ReTffLinear(nn.Module):
         assert frames.shape[-2] == self.out_features, "the frame dimension and output dimension must match"
 
         # the A matrix is going to be learned
-        self.tff_A = nn.ParameterList([nn.Parameter(torch.zeros(self.l, self.in_features), requires_grad=False) for i in range(self.k)])
+        self.tff_A = nn.Parameter(torch.zeros(self.k*self.l, self.in_features), requires_grad=True)
         # the B matrix is fixed to the frame matrix
-        self.proj_B = nn.ParameterList([nn.Parameter(frames[i], requires_grad=False) for i in range(self.k)])
+        cat_projs = frames.permute(0,2,1).view(-1,self.out_features).permute(1,0)
+        self.register_buffer('proj_B', cat_projs)
 
         self.reset_parameters()
 
     def reset_parameters(self):
-        # for i in range(self.num_frames_enabled):
-        for i in range(self.k):
-            nn.init.kaiming_uniform_(self.tff_A[i], a=math.sqrt(5))
-            self.tff_A[i].requires_grad = True
+        nn.init.kaiming_uniform_(self.tff_A, a=math.sqrt(5))
     
     @torch.no_grad()
     def merge_and_reinit(self, num_frames_incr):
         if self.num_frames_enabled < self.k:
-            # for i in range(self.num_frames_enabled, self.num_frames_enabled+num_frames_incr):
-            #     # enable requires_grad for the last frames
-            #     self.tff_A[i].requires_grad = True
-            # increment the number of frames enabled
             self.num_frames_enabled += num_frames_incr
+        print(self.num_frames_enabled)
 
     def forward(self, x: torch.Tensor):
         dropped_x = self.tff_dropout(x)
-        result = 0.
-        for i in range(self.num_frames_enabled):
-            temp_r = nn.functional.linear(dropped_x, self.tff_A[i])
-            result += nn.functional.linear(temp_r, self.proj_B[i]) * self.scaling
 
-        for i in range(self.num_frames_enabled, self.k):
-            result += 0 * self.tff_A[i].mean()
+        A_out = nn.functional.linear(dropped_x, self.tff_A[:self.num_frames_enabled*self.l,:])
+        result = nn.functional.linear(A_out, self.proj_B[:, :self.num_frames_enabled*self.l]) * self.scaling
+        # this line is to get through pytorch
+        result += self.tff_A[self.num_frames_enabled*self.l:, :].mean() * 0.
 
         return result
