@@ -201,6 +201,11 @@ class ReTffLinear(nn.Module):
     def merge_and_reinit(self, num_frames_incr):
         if self.num_frames_enabled < self.k:
             self.num_frames_enabled += num_frames_incr
+            prev_frames = self.num_frames_enabled - num_frames_incr
+            # nn.init.kaiming_uniform_(self.tff_A[prev_frames*self.l:self.num_frames_enabled*self.l,:],
+            #                          a=math.sqrt(5))
+            self.tff_A[prev_frames*self.l:self.num_frames_enabled*self.l,:] = 0
+            
         print(self.num_frames_enabled)
 
     def forward(self, x: torch.Tensor):
@@ -209,6 +214,7 @@ class ReTffLinear(nn.Module):
         A_out = nn.functional.linear(dropped_x, self.tff_A[:self.num_frames_enabled*self.l,:])
         result = nn.functional.linear(A_out, self.proj_B[:, :self.num_frames_enabled*self.l]) * self.scaling
         # this line is to get through pytorch
-        result += self.tff_A[self.num_frames_enabled*self.l:, :].mean() * 0.
+        if self.num_frames_enabled != self.k:
+            result += self.tff_A[self.num_frames_enabled*self.l:, :].mean() * 0.
 
         return result
